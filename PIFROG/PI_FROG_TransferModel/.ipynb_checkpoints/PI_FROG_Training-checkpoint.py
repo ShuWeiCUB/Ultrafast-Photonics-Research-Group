@@ -79,7 +79,7 @@ def run_model(model_id, grad, grad_flat, counter, weights, loss_value, all_h0r, 
 
     # ✅ Create a new independent model inside the worker process
     pinn = PINN.get_PINN(D_trainable=Dtrain, N2_trainable=True) #Dtrain false
-    pinn.load_latest_checkpoint(indexnum= 4900, basemodel=True)  # Load weights for this instance
+    #pinn.load_latest_checkpoint(indexnum= 4900, basemodel=True)  # Load weights for this instance
     
 
     # ✅ Run training independently for each process_
@@ -112,8 +112,10 @@ def run_model(model_id, grad, grad_flat, counter, weights, loss_value, all_h0r, 
     
         xla = '$Delay (T_0)$'
         yla = '$\omega (1/T_0)$'
-        myplots.myimshow(pinn.t,pinn.w,FROG0_sim[0].T,ax = axes[0],cbar = True,title = '$Truth_0$',xlabel = xla,ylabel = yla)
-        myplots.myimshow(pinn.t,pinn.w,FROG1_sim[0].T,ax = axes[2],cbar = True,title = '$Truth_{L_z}$',xlabel = xla,ylabel = yla)
+        #myplots.myimshow(pinn.t,pinn.w,FROG0_sim[0].T,ax = axes[0],cbar = True,title = '$Truth_0$',xlabel = xla,ylabel = yla)
+        #myplots.myimshow(pinn.t,pinn.w,FROG1_sim[0].T,ax = axes[2],cbar = True,title = '$Truth_{L_z}$',xlabel = xla,ylabel = yla)
+        myplots.myimshow(pinn.t,pinn.w,FROG0_sim.T,ax = axes[0],cbar = True,title = '$Truth_0$',xlabel = xla,ylabel = yla)
+        myplots.myimshow(pinn.t,pinn.w,FROG1_sim.T,ax = axes[2],cbar = True,title = '$Truth_{L_z}$',xlabel = xla,ylabel = yla)
     
         myplots.myimshow(pinn.t,pinn.w,FROG0[0].T,ax = axes[1],cbar = True,title = '$Predicted_0$',xlabel = xla,ylabel = yla)
         myplots.myimshow(pinn.t,pinn.w,FROG1[0].T,ax = axes[3],cbar = True,title = '$Predicted_{L_z}$',xlabel = xla,ylabel = yla)
@@ -145,8 +147,10 @@ def run_model(model_id, grad, grad_flat, counter, weights, loss_value, all_h0r, 
 
         xla = '$Delay (T_0)$'
         yla = '$\omega (1/T_0)$'
-        myplots.myimshow(pinn.t,pinn.w,FROG0_sim[0].T,ax = axes[0],cbar = True,title = '$SimTruth_0$',xlabel = xla,ylabel = yla)
-        myplots.myimshow(pinn.t,pinn.w,FROG1_sim[0].T,ax = axes[2],cbar = True,title = '$SimTruth_{L_z}$',xlabel = xla,ylabel = yla)
+        #myplots.myimshow(pinn.t,pinn.w,FROG0_sim[0].T,ax = axes[0],cbar = True,title = '$SimTruth_0$',xlabel = xla,ylabel = yla)
+        #myplots.myimshow(pinn.t,pinn.w,FROG1_sim[0].T,ax = axes[2],cbar = True,title = '$SimTruth_{L_z}$',xlabel = xla,ylabel = yla)
+        myplots.myimshow(pinn.t,pinn.w,FROG0_sim.T,ax = axes[0],cbar = True,title = '$SimTruth_0$',xlabel = xla,ylabel = yla)
+        myplots.myimshow(pinn.t,pinn.w,FROG1_sim.T,ax = axes[2],cbar = True,title = '$SimTruth_{L_z}$',xlabel = xla,ylabel = yla)
 
         FROG0fromh0, FROG1fromh1, U0sim, V0sim, U1sim, V1sim = pinn.getMakeFrog()
 

@@ -1,2 +1,2 @@
-model_checkpoint_path: "1900"
-all_model_checkpoint_paths: "1900"
+model_checkpoint_path: "0"
+all_model_checkpoint_paths: "0"

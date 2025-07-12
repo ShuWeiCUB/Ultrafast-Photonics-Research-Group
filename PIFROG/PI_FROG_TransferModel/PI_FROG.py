@@ -11,6 +11,13 @@ import joblib
 from joblib import Parallel, delayed
 from tqdm import trange
 import multiprocessing as mp  
+import scipy.io as sio
+
+from scipy.ndimage import zoom
+from skimage.transform import resize
+from scipy.interpolate import interp1d
+
+
 # import tensorflow_probability as tfp
 
 #import concurrent.futures
@@ -73,15 +80,15 @@ hp['SNR'] = np.inf
 hp['q']     = 100
 
 # Fourier Axes
-hp['dt']    = 12/hp['N'] # in units of T0
-hp['WinT']  = 6 # in hp[T0 single sided
+hp['dt']    = 6/hp['N'] #12 in units of T0 #12
+hp['WinT']  = 3 #6 # in hp[T0 single sided #6
 hp['nt']    = int(2*hp['WinT']/(hp['dt']))
 hp['nyq_w'] = np.pi/(hp['dt'])
 hp['dw0']   = np.pi/(hp['WinT'])
 
 # Define the wanted sampling in frequency space. Easiest to define as a factor of the nyquist
-hp['WinW']  = hp['nyq_w']/10 # in units of 1/T0 and must be <= pi/dt (single sided)
-hp['dw']    = hp['dw0']/4 # in units of 1/T0
+hp['WinW']  = hp['nyq_w']/10 #10 # in units of 1/T0 and must be <= pi/dt (single sided)
+hp['dw']    = hp['dw0']/4 #4 # in units of 1/T0
 # Dependent terms
 hp['nwtot'] = int(2*np.pi/(hp['dw']*hp['dt'])) # Padded nw total, Window will be cropped according to hp['WinW]
 hp['pad']   = int((hp['nwtot']-hp['nt'])/2) 
@@ -1574,26 +1581,159 @@ def get_PINN(hp = hp, datafname = 'PINN_FROG_modelN=1.16_dist=0.25pi.mat',indexn
     # Set the fitting and predicition functions for the specific data set 
     #pinn.training_data = (NN_hp['FROG_0'],NN_hp['FROG_1'],NN_hp['t'],NN_hp['w'])
 
-    FROG_0 = np.array(NN_hp['FROG_0'], dtype=np.float64)
-    FROG_1 = np.array(NN_hp['FROG_1'], dtype=np.float64)
+
+    #FROG_0 = np.array(NN_hp['FROG_0'], dtype=np.float64)
+    #FROG_1 = np.array(NN_hp['FROG_1'], dtype=np.float64)
     
-    noise_scale = 0.0  # 1% noise
+    #noise_scale = 0.0  # 1% noise
     
-    FROG_0_noisy = FROG_0 + noise_scale * np.random.normal(size=FROG_0.shape)
-    FROG_1_noisy = FROG_1 + noise_scale * np.random.normal(size=FROG_1.shape)
+    #FROG_0_noisy = FROG_0 + noise_scale * np.random.normal(size=FROG_0.shape)
+    #FROG_1_noisy = FROG_1 + noise_scale * np.random.normal(size=FROG_1.shape)
 
-    pinn.training_data = (FROG_0_noisy, FROG_1_noisy, NN_hp['t'], NN_hp['w'])
+    
+    Frog0path = ModelDirectory + r'/data/FROG_data_8nm_pad2_6.mat'
+    Frog1path = ModelDirectory + r'/data/FROG_data_3mw_padmatch2_6.mat'
+
+    FROG_0_content = sio.loadmat(Frog0path)
+    FROG_1_content = sio.loadmat(Frog1path)
+
+    FROG_0 = FROG_0_content['Isig']
+    FROG_1 = FROG_1_content['Isig']
+
+    # --- Resize with scipy.ndimage.zoom ---
+    zoom_factors = (26 / FROG_0.shape[0], 64 / FROG_0.shape[1])
+    FROG_0_zoom = zoom(FROG_0, zoom_factors, order=3)
+    FROG_1_zoom = zoom(FROG_1, zoom_factors, order=3)
+    
+    # --- Resize with skimage.transform.resize ---
+    FROG_0_skimg = resize(FROG_0, (26, 64), order=3, preserve_range=True, anti_aliasing=True)
+    FROG_1_skimg = resize(FROG_1, (26, 64), order=3, preserve_range=True, anti_aliasing=True)
+    
+    # --- Plot comparison ---
+    fig, axs = plt.subplots(2, 2, figsize=(12, 8))
+    
+    axs[0, 0].imshow(FROG_0_zoom, aspect='auto', cmap='inferno')
+    axs[0, 0].set_title("FROG_0: scipy.ndimage.zoom")
+    axs[0, 1].imshow(FROG_0_skimg, aspect='auto', cmap='inferno')
+    axs[0, 1].set_title("FROG_0: skimage.transform.resize")
+    
+    axs[1, 0].imshow(FROG_1_zoom, aspect='auto', cmap='inferno')
+    axs[1, 0].set_title("FROG_1: scipy.ndimage.zoom")
+    axs[1, 1].imshow(FROG_1_skimg, aspect='auto', cmap='inferno')
+    axs[1, 1].set_title("FROG_1: skimage.transform.resize")
+    
+    for ax in axs.flat:
+        ax.set_xlabel('Delay axis')
+        ax.set_ylabel('Frequency axis')
+    
+    plt.tight_layout()
+    plt.savefig('FROG0and1_interpolated.png')
+
+    FROG_0 = FROG_0_skimg.T
+    FROG_1 =  FROG_1_skimg.T
 
 
-    pinn.PerfectData = (FROG_0_noisy,FROG_1_noisy,np.real(sim_data['Clean_h0']),np.imag(sim_data['Clean_h0']),np.real(sim_data['Clean_h1']),np.imag(sim_data['Clean_h1']))
+
+    FROG_0_train = FROG_0_content['Ishg_ret']
+    FROG_1_train = FROG_1_content['Ishg_ret']
+
+    
+    FROG_0_train_skimg = resize(FROG_0_train, (26, 64), order=3, preserve_range=True, anti_aliasing=True)
+    FROG_1_train_skimg = resize(FROG_1_train, (26, 64), order=3, preserve_range=True, anti_aliasing=True)
+
+    FROG_0_train = FROG_0_train_skimg.T
+    FROG_1_train = FROG_1_train_skimg.T
+
+
+
+
+    #E_0 = FROG_0_content['et_ret']
+    #E_1 = FROG_1_content['et_ret']
+
+    E_0 = FROG_0_content['et_ret'].flatten()
+    E_1 = FROG_1_content['et_ret'].flatten()
+
+    x_old = np.linspace(0, 1, 128)
+    x_new = np.linspace(0, 1, 64)
+
+    E_real_0_func = interp1d(x_old, np.real(E_0), kind='cubic')
+    E_real_0 = E_real_0_func(x_new)  # shape (64,)
+    E_real_0 = E_real_0.reshape(1, 64)
+    #E_real_0 = [E_real_0]
+
+    
+    E_imag_0_func = interp1d(x_old, np.imag(E_0), kind='cubic')
+    E_imag_0 = E_imag_0_func(x_new)
+    E_imag_0 = E_imag_0.reshape(1, 64)
+    #E_imag_0 = [E_imag_0]
+
+    
+    E_real_1_func = interp1d(x_old, np.real(E_1), kind='cubic')
+    E_real_1 = E_real_1_func(x_new)
+    E_real_1 = E_real_1.reshape(1, 64)
+    #E_real_1 = [E_real_1]
+
+    
+    E_imag_1_func = interp1d(x_old, np.imag(E_1), kind='cubic')
+    E_imag_1 = E_imag_1_func(x_new)
+    E_imag_1 = E_imag_1.reshape(1, 64)
+    #E_imag_1 = [E_imag_1]
+
+
+    time_axis = FROG_0_content['t_exp'].squeeze()
+    time_axis = time_axis*pow(10,12)
+    t_span = np.linspace(time_axis[0], time_axis[-1], 64)
+    
+    freq_axis = FROG_0_content['f_exp']
+
+    print("FROG_0 shape " + str(FROG_0.shape))
+    #print("NN_hp['FROG_0'] shape " + str(NN_hp['FROG_0'].shape))
+
+    print("NN_hp['FROG_0'] type:", type(NN_hp['FROG_0']))
+    print("NN_hp['FROG_0'] length:", len(NN_hp['FROG_0']))
+
+    FROG_0_NN = NN_hp['FROG_0'][0]  # Extract the 2D array from the list
+    print("FROG_0 shape:", FROG_0_NN.shape)  # Should now be (128, 128)
+
+
+    print("time_axis_shape " + str(time_axis.shape))
+    print("NN['t] shape " + str(NN_hp['t'].shape))
+
+    FROG_0_NN = [FROG_0] # Now a list of length 1
+    FROG_1_NN = [FROG_1]
+
+    print("NN_hpBM['t'] " + str(NN_hpBM['t'][0].shape))
+    print("NN_hpBM['u_0'] " + str(NN_hpBM['u_0'][0].shape))
+    
+    #NN['t] shape (64,)
+    #NN_hpBM['u_0'] (64, 1)
+    
+
+
+    print("shapecleanh0" + str(np.real(sim_data['Clean_h0']).shape))
+
+    #pinn.training_data = (FROG_0_train, FROG_1_train, NN_hp['t'], freq_axis)
+    pinn.training_data = (FROG_0_train, FROG_1_train, t_span, NN_hp['w'])
+
+
+    #pinn.PerfectData = (FROG_0,FROG_1,np.real(sim_data['Clean_h0']),np.imag(sim_data['Clean_h0']),np.real(sim_data['Clean_h1']),np.imag(sim_data['Clean_h1']))
+    #pinn.PerfectData = (FROG_0,FROG_1,np.real(E_0),np.imag(E_0),np.real(E_1),np.imag(E_1))
+    pinn.PerfectData = (FROG_0,FROG_1,E_real_0,E_imag_0,E_real_1,E_imag_1)
+
+
 
     def getFROGtruth():
-        shift_amount = -30  # Left circular shift
+        shift_amount = 0  # Left circular shift
 
-        truth_h0r = np.roll(np.real(sim_data['Clean_h0']), shift=shift_amount, axis=0)
-        truth_h0i = np.roll(np.imag(sim_data['Clean_h0']), shift=shift_amount, axis=0)
-        truth_h1r = np.roll(np.real(sim_data['Clean_h1']), shift=shift_amount, axis=0)
-        truth_h1i = np.roll(np.imag(sim_data['Clean_h1']), shift=shift_amount, axis=0)
+        #truth_h0r = np.roll(np.real(sim_data['Clean_h0']), shift=shift_amount, axis=0)
+        #truth_h0i = np.roll(np.imag(sim_data['Clean_h0']), shift=shift_amount, axis=0)
+        #truth_h1r = np.roll(np.real(sim_data['Clean_h1']), shift=shift_amount, axis=0)
+        #truth_h1i = np.roll(np.imag(sim_data['Clean_h1']), shift=shift_amount, axis=0)
+
+        truth_h0r = np.roll(np.real(E_real_0), shift=shift_amount, axis=0)
+        truth_h0i = np.roll(E_imag_0, shift=shift_amount, axis=0)
+        truth_h1r = np.roll(np.real(E_real_1), shift=shift_amount, axis=0)
+        truth_h1i = np.roll(E_imag_1, shift=shift_amount, axis=0)
         #truth_h0r = np.real(sim_data['Clean_h0'])
         #truth_h0i = np.imag(sim_data['Clean_h0'])
         #truth_h1r = np.real(sim_data['Clean_h1'])
@@ -1615,9 +1755,13 @@ def get_PINN(hp = hp, datafname = 'PINN_FROG_modelN=1.16_dist=0.25pi.mat',indexn
         if loadbasemodel: 
             pinn.load_latest_checkpoint(basemodel = True)
             
-        pinn.fit(NN_hp['t'],\
-                 NN_hp['FROG_0'],\
-                  NN_hp['FROG_1'], qvalue, grad, grad_flat, counter, weights, loss_value, all_h0r, all_h0i, all_h1r, all_h1i, phase_loss_shared, frog_loss_shared, barrier, lock)
+        #pinn.fit(NN_hp['t'],\
+        #         NN_hp['FROG_0'],\
+        #          NN_hp['FROG_1'], qvalue, grad, grad_flat, counter, weights, loss_value, all_h0r, all_h0i, all_h1r, all_h1i, phase_loss_shared, frog_loss_shared, barrier, lock)
+        
+        pinn.fit(t_span,\
+                 FROG_0_NN,\
+                  FROG_1_NN, qvalue, grad, grad_flat, counter, weights, loss_value, all_h0r, all_h0i, all_h1r, all_h1i, phase_loss_shared, frog_loss_shared, barrier, lock)
             
     def Continue_PINN_fit(numIters = hp['nt_epochs']):
         pinn.load_latest_checkpoint()
