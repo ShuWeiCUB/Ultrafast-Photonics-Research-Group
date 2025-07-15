@@ -79,10 +79,15 @@ hp['RKsteps'] = 1
 hp['SNR'] = np.inf
 hp['q']     = 100
 
+print("hp['N'] " + str(hp['N']))
 # Fourier Axes
-hp['dt']    = 6/hp['N'] #12 in units of T0 #12
-hp['WinT']  = 3 #6 # in hp[T0 single sided #6
-hp['nt']    = int(2*hp['WinT']/(hp['dt']))
+hp['dt']    = 0.5/hp['N'] #12 in units of T0 #12 
+
+print("dt " + str(hp['dt']))
+hp['WinT']  = 2 #6 # in hp[T0 single sided #6
+print("WinT " + str(hp['WinT']))
+
+hp['nt']    = int(2*hp['WinT']/(hp['dt'])) # 2
 hp['nyq_w'] = np.pi/(hp['dt'])
 hp['dw0']   = np.pi/(hp['WinT'])
 
@@ -118,7 +123,9 @@ class PI_FROG(NeuralNetwork):
         self.t = NN_hp['t']
         self.z = NN_hp['z']
         n = len(self.t)
+        #self.w = np.arange(-n/2,n/2)*np.pi/(NN_hp['dt']*n)
         self.w = np.arange(-n/2,n/2)*np.pi/(NN_hp['dt']*n)
+
         # Add a reshape layer so the output is (,q,2) U is dim 1 V is dim 2
         self.model.add(tf.keras.layers.Reshape((NN_hp['q']*NN_hp['RKsteps'],2))) 
         self.sizes_w.append(0) # Has no weights
@@ -1637,9 +1644,12 @@ def get_PINN(hp = hp, datafname = 'PINN_FROG_modelN=1.16_dist=0.25pi.mat',indexn
     FROG_0_train = FROG_0_content['Ishg_ret']
     FROG_1_train = FROG_1_content['Ishg_ret']
 
+    newsize = 256
+    newfreq = 26
+
     
-    FROG_0_train_skimg = resize(FROG_0_train, (26, 64), order=3, preserve_range=True, anti_aliasing=True)
-    FROG_1_train_skimg = resize(FROG_1_train, (26, 64), order=3, preserve_range=True, anti_aliasing=True)
+    FROG_0_train_skimg = resize(FROG_0_train, (newfreq, newsize), order=3, preserve_range=True, anti_aliasing=True)
+    FROG_1_train_skimg = resize(FROG_1_train, (newfreq, newsize), order=3, preserve_range=True, anti_aliasing=True)
 
     FROG_0_train = FROG_0_train_skimg.T
     FROG_1_train = FROG_1_train_skimg.T
@@ -1653,36 +1663,69 @@ def get_PINN(hp = hp, datafname = 'PINN_FROG_modelN=1.16_dist=0.25pi.mat',indexn
     E_0 = FROG_0_content['et_ret'].flatten()
     E_1 = FROG_1_content['et_ret'].flatten()
 
-    x_old = np.linspace(0, 1, 128)
-    x_new = np.linspace(0, 1, 64)
+    time_axis = FROG_0_content['t_exp'].squeeze()
 
-    E_real_0_func = interp1d(x_old, np.real(E_0), kind='cubic')
-    E_real_0 = E_real_0_func(x_new)  # shape (64,)
-    E_real_0 = E_real_0.reshape(1, 64)
+    
+    time_axis = time_axis*pow(10,12)
+    
+    t_span = np.linspace(time_axis[0], time_axis[-1], newsize)
+
+    
+
+    factor = 1
+    t_new = np.linspace(factor*NN_hp['t'][0], factor*NN_hp['t'][-1], newsize)
+
+    print("np.size(NN_hp['t']) " + str(np.size(NN_hp['t'])))
+    
+
+    # === 3. Interpolate real and imaginary parts separately ===
+    interp_real_0 = interp1d(time_axis, np.real(E_0), kind='cubic', bounds_error=False, fill_value=0.0)
+    interp_imag_0 = interp1d(time_axis, np.imag(E_0), kind='cubic', bounds_error=False, fill_value=0.0)
+
+    interp_real_1 = interp1d(time_axis, np.real(E_1), kind='cubic', bounds_error=False, fill_value=0.0)
+    interp_imag_1 = interp1d(time_axis, np.imag(E_1), kind='cubic', bounds_error=False, fill_value=0.0)
+    
+    # === 4. Apply interpolation ===
+    E_0 = interp_real_0(t_new) + 1j * interp_imag_0(t_new)
+    E_1 = interp_real_1(t_new) + 1j * interp_imag_1(t_new)
+
+    #x_old = np.linspace(0, 1, 128)
+
+    #x_new = np.linspace(0, 1, newsize)
+
+    #E_real_0_func = interp1d(x_old, np.real(E_0), kind='cubic')
+    #E_real_0 = E_real_0_func(x_new)  # shape (64,)
+    E_real_0 = np.real(E_0)
+    E_real_0 = E_real_0.reshape(1, newsize)
     #E_real_0 = [E_real_0]
 
     
-    E_imag_0_func = interp1d(x_old, np.imag(E_0), kind='cubic')
-    E_imag_0 = E_imag_0_func(x_new)
-    E_imag_0 = E_imag_0.reshape(1, 64)
+    #E_imag_0_func = interp1d(x_old, np.imag(E_0), kind='cubic')
+    #_imag_0 = E_imag_0_func(x_new)
+    
+    E_imag_0 = np.imag(E_0)
+    E_imag_0 = E_imag_0.reshape(1, newsize)
     #E_imag_0 = [E_imag_0]
 
     
-    E_real_1_func = interp1d(x_old, np.real(E_1), kind='cubic')
-    E_real_1 = E_real_1_func(x_new)
-    E_real_1 = E_real_1.reshape(1, 64)
+    #E_real_1_func = interp1d(x_old, np.real(E_1), kind='cubic')
+    #_real_1 = E_real_1_func(x_new)
+    E_real_1 = np.real(E_1)
+    E_real_1 = E_real_1.reshape(1, newsize)
     #E_real_1 = [E_real_1]
 
     
-    E_imag_1_func = interp1d(x_old, np.imag(E_1), kind='cubic')
-    E_imag_1 = E_imag_1_func(x_new)
-    E_imag_1 = E_imag_1.reshape(1, 64)
+    #E_imag_1_func = interp1d(x_old, np.imag(E_1), kind='cubic')
+    #E_imag_1 = E_imag_1_func(x_new)
+    E_imag_1 = np.imag(E_1)
+    E_imag_1 = E_imag_1.reshape(1, newsize)
     #E_imag_1 = [E_imag_1]
 
 
-    time_axis = FROG_0_content['t_exp'].squeeze()
-    time_axis = time_axis*pow(10,12)
-    t_span = np.linspace(time_axis[0], time_axis[-1], 64)
+    
+
+    print("tspan min " + str(time_axis[0]))
+    print("tspan max " + str(time_axis[-1]))
     
     freq_axis = FROG_0_content['f_exp']
 
@@ -1697,7 +1740,7 @@ def get_PINN(hp = hp, datafname = 'PINN_FROG_modelN=1.16_dist=0.25pi.mat',indexn
 
 
     print("time_axis_shape " + str(time_axis.shape))
-    print("NN['t] shape " + str(NN_hp['t'].shape))
+    print("NN_hp['t] shape " + str(NN_hp['t'].shape))
 
     FROG_0_NN = [FROG_0] # Now a list of length 1
     FROG_1_NN = [FROG_1]
@@ -1731,9 +1774,9 @@ def get_PINN(hp = hp, datafname = 'PINN_FROG_modelN=1.16_dist=0.25pi.mat',indexn
         #truth_h1i = np.roll(np.imag(sim_data['Clean_h1']), shift=shift_amount, axis=0)
 
         truth_h0r = np.roll(np.real(E_real_0), shift=shift_amount, axis=0)
-        truth_h0i = np.roll(E_imag_0, shift=shift_amount, axis=0)
+        truth_h0i = np.roll(E_imag_0, shift=shift_amount, axis=0).astype(np.float64)
         truth_h1r = np.roll(np.real(E_real_1), shift=shift_amount, axis=0)
-        truth_h1i = np.roll(E_imag_1, shift=shift_amount, axis=0)
+        truth_h1i = np.roll(E_imag_1, shift=shift_amount, axis=0).astype(np.float64)
         #truth_h0r = np.real(sim_data['Clean_h0'])
         #truth_h0i = np.imag(sim_data['Clean_h0'])
         #truth_h1r = np.real(sim_data['Clean_h1'])
@@ -1741,9 +1784,71 @@ def get_PINN(hp = hp, datafname = 'PINN_FROG_modelN=1.16_dist=0.25pi.mat',indexn
 
         truth_h0 = tf.complex(truth_h0r, truth_h0i)
         truth_h1 = tf.complex(truth_h1r, truth_h1i)
+
+        #padding = hp['pad']   = int((hp['nwtot']-hp['nt'])/2) 
+        #print("padding " +str(padding))
+        #padding = padding - 32
+
+        #rint("padding " +str(padding))
+
         
-        FROG0fromh0 = makeFROG(truth_h0,truth_h0,pad = hp['pad'],wcrop = hp['nw'])
-        FROG1fromh1 = makeFROG(truth_h1,truth_h1,pad = hp['pad'], wcrop = hp['nw'])
+
+        
+    
+        #nw = hp['nw']    = int(2*hp['WinW']/hp['dw'])
+
+        
+        plt.figure(figsize=(8, 4))
+        plt.plot(truth_h0r[0])
+        plt.title("Rolled Real Part of E_real_0")
+        plt.xlabel("Index")
+        plt.ylabel("Amplitude")
+        plt.grid(True)
+        plt.tight_layout()
+        plt.savefig('Ereal.png')
+        plt.close()
+
+        truth_h0r_clean = np.roll(np.real(sim_data['Clean_h0']), shift=shift_amount, axis=0)
+
+        plt.figure(figsize=(8, 4))
+        plt.plot(truth_h0r_clean[0])
+        plt.title("Rolled Real Part of clean_h0")
+        plt.xlabel("Index")
+        plt.ylabel("Amplitude")
+        plt.grid(True)
+        plt.tight_layout()
+        plt.savefig('Ereal_clean.png')
+        plt.close()
+
+        #print("truth_h0 shape "  + str(truth_h0.shape))
+        
+        #pad = 192  # number of points to pad on each side
+        #truth_h0_pad = np.pad(truth_h0, pad_width=pad, mode='constant', constant_values=0)
+        
+        #truth_h1_pad = np.pad(truth_h1, pad_width=pad, mode='constant', constant_values=0)
+
+        pad = 128  # number of zeros to add on each side of the time axis
+        crop = int(0.0 * (128 + 2 * pad))  # or whatever padded length is
+
+        truth_h0_pad = np.pad(truth_h0, pad_width=((0, 0), (pad, pad)), mode='constant', constant_values=0)
+        truth_h1_pad = np.pad(truth_h1, pad_width=((0, 0), (pad, pad)), mode='constant', constant_values=0)
+
+        
+        ## Similarly for Egate if different or same shape
+         #= np.pad(Egate, pad_width=pad, mode='constant', constant_values=0)
+        
+
+        
+
+
+        
+        #FROG0fromh0 = makeFROG(truth_h0,truth_h0,pad = hp['pad'],wcrop = hp['nw'])
+        #ROG1fromh1 = makeFROG(truth_h1,truth_h1,pad = hp['pad'], wcrop = hp['nw'])
+        #FROG0fromh0 = makeFROG(truth_h0,truth_h0,pad = 0,wcrop =0)
+        #FROG1fromh1 = makeFROG(truth_h1,truth_h1,pad = 0, wcrop = 0)
+
+        FROG0fromh0 = makeFROG(truth_h0_pad,truth_h0_pad,pad = 0,wcrop = crop)
+        FROG1fromh1 = makeFROG(truth_h1_pad,truth_h1_pad,pad = 0, wcrop = crop)
 
         return FROG0fromh0, FROG1fromh1, truth_h0r, truth_h0i, truth_h1r, truth_h1i
     
