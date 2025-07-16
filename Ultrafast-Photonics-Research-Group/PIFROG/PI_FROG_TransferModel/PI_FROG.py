@@ -124,7 +124,8 @@ class PI_FROG(NeuralNetwork):
         self.z = NN_hp['z']
         n = len(self.t)
         #self.w = np.arange(-n/2,n/2)*np.pi/(NN_hp['dt']*n)
-        self.w = np.arange(-n/2,n/2)*np.pi/(NN_hp['dt']*n)
+        self.t = NN_hp['t']*2
+        self.w = np.linspace(-6.4,6.4, n)
 
         # Add a reshape layer so the output is (,q,2) U is dim 1 V is dim 2
         self.model.add(tf.keras.layers.Reshape((NN_hp['q']*NN_hp['RKsteps'],2))) 
@@ -801,8 +802,21 @@ class PI_FROG(NeuralNetwork):
             '''
             time2 = time.time()
 
-            FROG0_q_pred = makeFROG(h0,h0,pad = self.pad,wcrop = self.nw)
-            FROG1_q_pred = makeFROG(h1,h1,pad = self.pad,wcrop = self.nw)
+            pad = 128  # number of zeros to add on each side of the time axis
+            crop = int(0.0 * (128 + 2 * pad))  # or whatever padded length is
+
+            #h0_pad = np.pad(h0, pad_width=((0, 0), (pad, pad)), mode='constant', constant_values=0)
+            #h1_pad = np.pad(h1, pad_width=((0, 0), (pad, pad)), mode='constant', constant_values=0)
+
+            #h0 = np.pad(h0, pad_width=(pad, pad), mode='constant', constant_values=0)
+            #1 = np.pad(h1, pad_width=(pad, pad), mode='constant', constant_values=0)
+
+            h0 = tf.pad(h0, paddings=[[pad, pad]], mode='CONSTANT')
+            h1 = tf.pad(h1, paddings=[[pad,pad]], mode ='CONSTANT')
+
+
+            FROG0_q_pred = makeFROG(h0,h0,pad = 0,wcrop = crop)
+            FROG1_q_pred = makeFROG(h1,h1,pad = 0,wcrop = crop)
             
             time3 = time.time()
             
@@ -1512,7 +1526,7 @@ class PI_FROG(NeuralNetwork):
 
       
 #%% TRAININGÂ THEÂ MODEL
-def get_PINN(hp = hp, datafname = 'PINN_FROG_modelN=1.16_dist=0.25pi.mat',indexnum = 'last',ModelDirectory = os.getcwd(),D_trainable = False, N2_trainable = False, Load_Trained_model = False):
+def get_PINN(hp = hp, datafname = 'PINN_FROG_modelN=2.0_dist=0.25pi',indexnum = 'last',ModelDirectory = os.getcwd(),D_trainable = False, N2_trainable = False, Load_Trained_model = False):
     # Getting the data
     # datafname = 'GNLSE_Disc_Raman_On.mat'
     if 'datafname' in hp:
@@ -1597,7 +1611,6 @@ def get_PINN(hp = hp, datafname = 'PINN_FROG_modelN=1.16_dist=0.25pi.mat',indexn
     #FROG_0_noisy = FROG_0 + noise_scale * np.random.normal(size=FROG_0.shape)
     #FROG_1_noisy = FROG_1 + noise_scale * np.random.normal(size=FROG_1.shape)
 
-    
     Frog0path = ModelDirectory + r'/data/FROG_data_8nm_pad2_6.mat'
     Frog1path = ModelDirectory + r'/data/FROG_data_3mw_padmatch2_6.mat'
 
@@ -1607,14 +1620,93 @@ def get_PINN(hp = hp, datafname = 'PINN_FROG_modelN=1.16_dist=0.25pi.mat',indexn
     FROG_0 = FROG_0_content['Isig']
     FROG_1 = FROG_1_content['Isig']
 
-    # --- Resize with scipy.ndimage.zoom ---
-    zoom_factors = (26 / FROG_0.shape[0], 64 / FROG_0.shape[1])
-    FROG_0_zoom = zoom(FROG_0, zoom_factors, order=3)
-    FROG_1_zoom = zoom(FROG_1, zoom_factors, order=3)
+    newsize = 128
+
+    time_axis = FROG_0_content['t_exp'].squeeze()
+    freq_axis = FROG_0_content['f_exp'].squeeze()
+
     
+    time_axis = time_axis*pow(10,12)
+    freq_axis = freq_axis*pow(10,-12)
+    
+    t_span_pre = np.linspace(time_axis[0], time_axis[-1], newsize)
+    f_span_pre = np.linspace(freq_axis[0], freq_axis[-1], newsize)
+
+
+    
+
+    factor = 1
+    t_new_pre = np.linspace(factor*NN_hp['t'][0], factor*NN_hp['t'][-1], newsize)
+    f_new_pre = np.linspace(-6.4, 6.4, newsize)
+
+
+    def interpolate_delay_axis(FROG, t_old, t_new):
+        # Initialize new array with new delay length but same freq bins
+        N_freq = FROG.shape[0]
+        N_new_delay = len(t_new)
+        FROG_new = np.zeros((N_freq, N_new_delay))
+    
+        for i in range(N_freq):
+            interp_func = interp1d(t_old, FROG[i, :], kind='cubic', bounds_error=False, fill_value=0)
+            FROG_new[i, :] = interp_func(t_new)
+
+        return FROG_new
+
+    def interpolate_freq_axis(FROG, f_span, f_new):
+        """
+        Interpolate the FROG trace along the frequency axis.
+        
+        Parameters:
+            FROG    : 2D np.array, shape (N_freq, N_delay)
+            f_span  : 1D np.array, original frequency axis (in THz)
+            f_new   : 1D np.array, new frequency axis (in THz)
+        
+        Returns:
+            FROG_new: 2D np.array, shape (len(f_new), N_delay)
+        """
+        N_delay = FROG.shape[1]
+        N_new_freq = len(f_new)
+        FROG_new = np.zeros((N_new_freq, N_delay))
+    
+        for j in range(N_delay):
+            interp_func = interp1d(f_span, FROG[:, j], kind='cubic', bounds_error=False, fill_value=0)
+            FROG_new[:, j] = interp_func(f_new)
+    
+        return FROG_new
+
+    # Usage:
+    FROG_0_interp = interpolate_delay_axis(FROG_0, t_span_pre, t_new_pre)
+    FROG_0_both = interpolate_freq_axis(FROG_0_interp, f_span_pre, f_new_pre)
+    
+    FROG_1_interp = interpolate_delay_axis(FROG_1, t_span_pre, t_new_pre)
+    FROG_1_both = interpolate_freq_axis(FROG_1_interp, f_span_pre, f_new_pre)
+
+    
+
+
+    # --- Resize with scipy.ndimage.zoom ---
+    zoom_factors = (512 / FROG_0.shape[0], 512 / FROG_0.shape[1])
+    FROG_0_zoom = zoom(FROG_0_both, zoom_factors, order=3)
+    FROG_1_zoom = zoom(FROG_1_both, zoom_factors, order=3)
+
+    # size 26, 256
     # --- Resize with skimage.transform.resize ---
-    FROG_0_skimg = resize(FROG_0, (26, 64), order=3, preserve_range=True, anti_aliasing=True)
-    FROG_1_skimg = resize(FROG_1, (26, 64), order=3, preserve_range=True, anti_aliasing=True)
+    FROG_0_skimg = resize(FROG_0_both, (512, 256), order=3, preserve_range=True, anti_aliasing=True)
+    FROG_1_skimg = resize(FROG_1_both, (512, 256), order=3, preserve_range=True, anti_aliasing=True)
+
+    #FROG_0_skimg = pad_frog_to_512x512(FROG_0_skimg)
+    #FROG_1_skimg = pad_frog_to_512x512(FROG_1_skimg)
+
+    # Assume FROG_0_skimg and FROG_1_skimg are (512, 256)
+    pad_left  = (512 - 256) // 2  # = 128
+    pad_right = 512 - 256 - pad_left  # = 128
+    
+    # Pad columns (delay axis)
+    FROG_0_skimg = np.pad(FROG_0_skimg, pad_width=((0, 0), (pad_left, pad_right)), mode='constant', constant_values=0)
+    FROG_1_skimg = np.pad(FROG_1_skimg, pad_width=((0, 0), (pad_left, pad_right)), mode='constant', constant_values=0)
+
+
+    
     
     # --- Plot comparison ---
     fig, axs = plt.subplots(2, 2, figsize=(12, 8))
@@ -1639,13 +1731,26 @@ def get_PINN(hp = hp, datafname = 'PINN_FROG_modelN=1.16_dist=0.25pi.mat',indexn
     FROG_0 = FROG_0_skimg.T
     FROG_1 =  FROG_1_skimg.T
 
+    Frog1SSFM_data = ModelDirectory + r'/data/SSFM_N2=2.mat'
+
+    FROG1SSFM_content = sio.loadmat(Frog1SSFM_data)
+
 
 
     FROG_0_train = FROG_0_content['Ishg_ret']
-    FROG_1_train = FROG_1_content['Ishg_ret']
+    #FROG_1_train = FROG_1_content['Ishg_ret']
+    FROG_1_train = FROG1SSFM_content['FROG_Lz']
 
     newsize = 256
-    newfreq = 26
+    newfreq = 256
+
+    t_span = np.linspace(time_axis[0], time_axis[-1], newsize)
+    f_span = np.linspace(freq_axis[0], freq_axis[-1], newsize)
+
+
+    factor = 1
+    t_new = np.linspace(factor*NN_hp['t'][0], factor*NN_hp['t'][-1], newsize)
+    f_new = np.linspace(-6.4, 6.4, newsize)
 
     
     FROG_0_train_skimg = resize(FROG_0_train, (newfreq, newsize), order=3, preserve_range=True, anti_aliasing=True)
@@ -1661,19 +1766,14 @@ def get_PINN(hp = hp, datafname = 'PINN_FROG_modelN=1.16_dist=0.25pi.mat',indexn
     #E_1 = FROG_1_content['et_ret']
 
     E_0 = FROG_0_content['et_ret'].flatten()
-    E_1 = FROG_1_content['et_ret'].flatten()
+    
+    #E_1 = FROG_1_content['et_ret'].flatten()
+    U_1 = FROG1SSFM_content['u_end'].flatten()
+    V_1 = FROG1SSFM_content['v_end'].flatten()
 
-    time_axis = FROG_0_content['t_exp'].squeeze()
+    E_1 = U_1 + 1j* V_1
 
     
-    time_axis = time_axis*pow(10,12)
-    
-    t_span = np.linspace(time_axis[0], time_axis[-1], newsize)
-
-    
-
-    factor = 1
-    t_new = np.linspace(factor*NN_hp['t'][0], factor*NN_hp['t'][-1], newsize)
 
     print("np.size(NN_hp['t']) " + str(np.size(NN_hp['t'])))
     
@@ -1735,8 +1835,8 @@ def get_PINN(hp = hp, datafname = 'PINN_FROG_modelN=1.16_dist=0.25pi.mat',indexn
     print("NN_hp['FROG_0'] type:", type(NN_hp['FROG_0']))
     print("NN_hp['FROG_0'] length:", len(NN_hp['FROG_0']))
 
-    FROG_0_NN = NN_hp['FROG_0'][0]  # Extract the 2D array from the list
-    print("FROG_0 shape:", FROG_0_NN.shape)  # Should now be (128, 128)
+    #FROG_0_NN = NN_hp['FROG_0'][0]  # Extract the 2D array from the list
+    #rint("FROG_0 shape:", FROG_0_NN.shape)  # Should now be (128, 128)
 
 
     print("time_axis_shape " + str(time_axis.shape))
@@ -1762,6 +1862,19 @@ def get_PINN(hp = hp, datafname = 'PINN_FROG_modelN=1.16_dist=0.25pi.mat',indexn
     #pinn.PerfectData = (FROG_0,FROG_1,np.real(sim_data['Clean_h0']),np.imag(sim_data['Clean_h0']),np.real(sim_data['Clean_h1']),np.imag(sim_data['Clean_h1']))
     #pinn.PerfectData = (FROG_0,FROG_1,np.real(E_0),np.imag(E_0),np.real(E_1),np.imag(E_1))
     pinn.PerfectData = (FROG_0,FROG_1,E_real_0,E_imag_0,E_real_1,E_imag_1)
+
+    datapath = ModelDirectory + r'/data/PINN_FROG_modelN=2.0_dist=1.mat'
+
+    data_content = sio.loadmat(datapath)
+    data_struct = data_content['data']
+    
+    FROG0 = data_struct['FROG0'][0,0]
+    FROGLz = data_struct['FROGLz'][0,0]
+
+    #FROG0 = [FROG0]
+    #FROGLz = [FROGLz]
+
+    
 
 
 
@@ -1808,6 +1921,16 @@ def get_PINN(hp = hp, datafname = 'PINN_FROG_modelN=1.16_dist=0.25pi.mat',indexn
         plt.savefig('Ereal.png')
         plt.close()
 
+        plt.figure(figsize=(8, 4))
+        plt.plot(truth_h0i[0])
+        plt.title("Rolled imag Part of E_imag_0")
+        plt.xlabel("Index")
+        plt.ylabel("Amplitude")
+        plt.grid(True)
+        plt.tight_layout()
+        plt.savefig('Eimag.png')
+        plt.close()
+
         truth_h0r_clean = np.roll(np.real(sim_data['Clean_h0']), shift=shift_amount, axis=0)
 
         plt.figure(figsize=(8, 4))
@@ -1819,6 +1942,7 @@ def get_PINN(hp = hp, datafname = 'PINN_FROG_modelN=1.16_dist=0.25pi.mat',indexn
         plt.tight_layout()
         plt.savefig('Ereal_clean.png')
         plt.close()
+        
 
         #print("truth_h0 shape "  + str(truth_h0.shape))
         
@@ -1859,10 +1983,10 @@ def get_PINN(hp = hp, datafname = 'PINN_FROG_modelN=1.16_dist=0.25pi.mat',indexn
     def Start_PINN_fit(qvalue, grad, grad_flat, counter, weights, loss_value, all_h0r, all_h0i, all_h1r, all_h1i, phase_loss_shared, frog_loss_shared, barrier, lock, loadbasemodel = False):
         if loadbasemodel: 
             pinn.load_latest_checkpoint(basemodel = True)
-            
-        #pinn.fit(NN_hp['t'],\
-        #         NN_hp['FROG_0'],\
-        #          NN_hp['FROG_1'], qvalue, grad, grad_flat, counter, weights, loss_value, all_h0r, all_h0i, all_h1r, all_h1i, phase_loss_shared, frog_loss_shared, barrier, lock)
+            #nnhp['t'] NN_hp['FROG_0']
+        #pinn.fit(t_span,\
+        #         FROG0,\
+        #         FROGLz, qvalue, grad, grad_flat, counter, weights, loss_value, all_h0r, all_h0i, all_h1r, all_h1i, phase_loss_shared, frog_loss_shared, barrier, lock)
         
         pinn.fit(t_span,\
                  FROG_0_NN,\

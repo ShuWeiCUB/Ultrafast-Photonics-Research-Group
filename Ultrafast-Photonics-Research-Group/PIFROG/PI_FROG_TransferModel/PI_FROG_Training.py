@@ -23,7 +23,6 @@ Dtrain = False
 #D_pred, N_pred = pinn.get_params(numpy=True)
 
 #pinn.Start_fit_basemodel()
-
 #pinn.Start_fit(loadbasemodel = True)
 
 
@@ -86,7 +85,7 @@ def run_model(model_id, grad, grad_flat, counter, weights, loss_value, all_h0r, 
     #barrier.wait()  # Sync before any work
     #pinn.load_latest_checkpoint(indexnum=14995)
     barrier.wait()
-    #pinn.Start_fit(qvalue, grad, grad_flat, counter, weights, loss_value, all_h0r, all_h0i, all_h1r, all_h1i, phase_loss_shared, frog_loss_shared, barrier,lock, loadbasemodel=True) 
+    pinn.Start_fit(qvalue, grad, grad_flat, counter, weights, loss_value, all_h0r, all_h0i, all_h1r, all_h1i, phase_loss_shared, frog_loss_shared, barrier,lock, loadbasemodel=True) 
 
     print(f"Finished model {model_id} on CPU {mp.current_process().name}")
     
@@ -114,11 +113,11 @@ def run_model(model_id, grad, grad_flat, counter, weights, loss_value, all_h0r, 
         yla = '$\omega (1/T_0)$'
         #myplots.myimshow(pinn.t,pinn.w,FROG0_sim[0].T,ax = axes[0],cbar = True,title = '$Truth_0$',xlabel = xla,ylabel = yla)
         #myplots.myimshow(pinn.t,pinn.w,FROG1_sim[0].T,ax = axes[2],cbar = True,title = '$Truth_{L_z}$',xlabel = xla,ylabel = yla)
-        myplots.myimshow(pinn.t,pinn.w,FROG0_sim.T,ax = axes[0],cbar = True,title = '$Truth_0$',xlabel = xla,ylabel = yla)
-        myplots.myimshow(pinn.t,pinn.w,FROG1_sim.T,ax = axes[2],cbar = True,title = '$Truth_{L_z}$',xlabel = xla,ylabel = yla)
+        myplots.myimshow(pinn.w,pinn.t,FROG0_sim.T,ax = axes[0],cbar = True,title = '$Truth_0$',xlabel = 'ps',ylabel = 'THz')
+        myplots.myimshow(pinn.w,pinn.t,FROG1_sim.T,ax = axes[2],cbar = True,title = '$Truth_{L_z}$',xlabel = 'ps',ylabel = 'THz')
     
-        myplots.myimshow(pinn.t,pinn.w,FROG0[0].T,ax = axes[1],cbar = True,title = '$Predicted_0$',xlabel = xla,ylabel = yla)
-        myplots.myimshow(pinn.t,pinn.w,FROG1[0].T,ax = axes[3],cbar = True,title = '$Predicted_{L_z}$',xlabel = xla,ylabel = yla)
+        myplots.myimshow(pinn.w,pinn.t,FROG0[0].T,ax = axes[1],cbar = True,title = '$Predicted_0$',xlabel = 'ps',ylabel = 'THz')
+        myplots.myimshow(pinn.w,pinn.t,FROG1[0].T,ax = axes[3],cbar = True,title = '$Predicted_{L_z}$',xlabel = 'ps',ylabel = 'THz')
 
         #transpose to match shape
         #myplots.myimshow(pinn.w, pinn.t, FROG0[0].T, ax=axes[1], cbar=True, title='$Predicted_0$', xlabel=yla, ylabel=xla)
@@ -149,8 +148,8 @@ def run_model(model_id, grad, grad_flat, counter, weights, loss_value, all_h0r, 
         yla = '$\omega (1/T_0)$'
         #myplots.myimshow(pinn.t,pinn.w,FROG0_sim[0].T,ax = axes[0],cbar = True,title = '$SimTruth_0$',xlabel = xla,ylabel = yla)
         #myplots.myimshow(pinn.t,pinn.w,FROG1_sim[0].T,ax = axes[2],cbar = True,title = '$SimTruth_{L_z}$',xlabel = xla,ylabel = yla)
-        myplots.myimshow(pinn.t,pinn.w,FROG0_sim.T,ax = axes[0],cbar = True,title = '$SimTruth_0$',xlabel = xla,ylabel = yla)
-        myplots.myimshow(pinn.t,pinn.w,FROG1_sim.T,ax = axes[2],cbar = True,title = '$SimTruth_{L_z}$',xlabel = xla,ylabel = yla)
+        myplots.myimshow(pinn.w,pinn.t,FROG0_sim.T,ax = axes[0],cbar = True,title = '$ExpTruth_0$',xlabel = 'ps',ylabel = 'THz')
+        myplots.myimshow(pinn.w,pinn.t,FROG1_sim.T,ax = axes[2],cbar = True,title = '$ExpTruth_{L_z}$',xlabel = 'ps',ylabel = 'THz')
 
         FROG0fromh0, FROG1fromh1, U0sim, V0sim, U1sim, V1sim = pinn.getMakeFrog()
 
@@ -158,8 +157,8 @@ def run_model(model_id, grad, grad_flat, counter, weights, loss_value, all_h0r, 
         #FrogError0 = FROG0fromh0 - FROG0_sim[0]
         #FrogError1 = FROG1fromh1 - FROG1_sim[0]
         
-        myplots.myimshow(pinn.t,pinn.w,FROG0fromh0,ax = axes[1],cbar = True,title = '$fromh0truth_0$',xlabel = xla,ylabel = yla)
-        myplots.myimshow(pinn.t,pinn.w,FROG1fromh1,ax = axes[3],cbar = True,title = '$fromh1truth_{L_z}$',xlabel = xla,ylabel = yla)
+        myplots.myimshow(pinn.w,pinn.t,FROG0fromh0,ax = axes[1],cbar = True,title = '$fromRANA_0$',xlabel = 'ps',ylabel = 'THz')
+        myplots.myimshow(pinn.w,pinn.t,FROG1fromh1,ax = axes[3],cbar = True,title = '$fromRANA_{L_z}$',xlabel = 'ps',ylabel = 'THz')
 
         #myplots.myimshow(pinn.t,pinn.w,FrogError0,ax = axes[1],cbar = True,title = '$FrogError0$',xlabel = xla,ylabel = yla)
         #myplots.myimshow(pinn.t,pinn.w,FrogError1,ax = axes[3],cbar = True,title = '$FrogError1_{L_z}$',xlabel = xla,ylabel = yla)

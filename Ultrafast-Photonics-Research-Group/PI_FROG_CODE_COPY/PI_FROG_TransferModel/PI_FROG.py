@@ -69,8 +69,8 @@ hp['SNR'] = np.inf
 hp['q']     = 100
 
 # Fourier Axes
-hp['dt']    = 12/hp['N'] # in units of T0
-hp['WinT']  = 6 # in hp[T0 single sided
+hp['dt']    = 0.5/hp['N'] # in units of T0
+hp['WinT']  = 2 # in hp[T0 single sided
 hp['nt']    = int(2*hp['WinT']/(hp['dt']))
 hp['nyq_w'] = np.pi/(hp['dt'])
 hp['dw0']   = np.pi/(hp['WinT'])
@@ -92,10 +92,18 @@ class PI_FROG(NeuralNetwork):
         self.dz =  NN_hp['dz']
         self.q = max(NN_hp['q'], 1)
         self.RKsteps = NN_hp['RKsteps']
-        self.t = NN_hp['t']
+        
+        t_new = np.linspace(NN_hp['t'][0], NN_hp['t'][-1], 256)
+
+        self.t = t_new
         self.z = NN_hp['z']
         n = len(self.t)
+        
         self.w = np.arange(-n/2,n/2)*np.pi/(NN_hp['dt']*n)
+        #self.t = NN_hp['t']*2
+        #self.w = np.linspace(-6.4,6.4, len(self.t))
+
+        
         # Add a reshape layer so the output is (,q,2) U is dim 1 V is dim 2
         self.model.add(tf.keras.layers.Reshape((NN_hp['q']*NN_hp['RKsteps'],2))) 
         self.sizes_w.append(0) # Has no weights
@@ -454,9 +462,11 @@ class PI_FROG(NeuralNetwork):
           self.nt_config, Struct(), True, log_train_epoch, NeurNet = self)
         self.logger.log_train_end(self.hp['nt_epochs'],self)
 ########################## Base Model Loss ###################################
-    def loss_basemodel(self, t, uu_0, vv_0, uu_1, vv_1):
+    def loss_basemodel(self, t, uu_0, vv_0, uu_1, vv_1, epoch):
         UU_0_pred, VV_0_pred, UU0, VV0, UU0_t, VV0_t = self.UV_0_model(t)
         UU_1_pred, VV_1_pred, UU1, VV1, UU1_t, VV1_t = self.UV_1_model(t)
+
+        
         
         mse0 = 0
         mse1 = 0
@@ -472,13 +482,32 @@ class PI_FROG(NeuralNetwork):
             v_0  = vv_0[i]
             u_1  = uu_1[i]
             v_1  = vv_1[i]
-            
+
+            #emod = (16*epoch) % 256
+
+        
             # MSE loss function for each step at input 0 and output 1 of the RK of q order stages.
-            mse0 = tf.reduce_sum(tf.square(u_0_pred- u_0)) +\
-                tf.reduce_sum(tf.square(v_0_pred- v_0)) + mse0
+            #mse0 = tf.reduce_sum(tf.square(u_0_pred[emod:emod+16, :]- u_0[emod:emod+16, :])) +\
+            #    tf.reduce_sum(tf.square(v_0_pred[emod:emod+16, :]- v_0[emod:emod+16, :])) + mse0
+            #    
+            #mse1 = tf.reduce_sum(tf.square(u_1_pred[emod:emod+16, :]- u_1[emod:emod+16, :])) +\
+            #    tf.reduce_sum(tf.square(v_1_pred[emod:emod+16, :]- v_1[emod:emod+16, :])) + mse1
+
+            # MSE loss function for each step at input 0 and output 1 of the RK of q order stages.
+            I0pred = tf.square(u_0_pred) + tf.square(v_0_pred)
+            I0 = tf.square(u_0) + tf.square(v_0)
+
+            I1pred = tf.square(u_1_pred) + tf.square(v_1_pred)
+            I1 = tf.square(u_1) + tf.square(v_1)
+
+            mse0 = tf.reduce_sum(tf.square(I0pred- I0)) + mse0
+            mse1 = tf.reduce_sum(tf.square(I1pred - I1)) + mse1
+            
+            #mse0 = tf.reduce_sum(tf.square(u_0_pred- u_0)) +\
+            #    tf.reduce_sum(tf.square(v_0_pred- v_0)) + mse0
                 
-            mse1 = tf.reduce_sum(tf.square(u_1_pred- u_1)) +\
-                tf.reduce_sum(tf.square(v_1_pred- v_1)) + mse1
+            #mse1 = tf.reduce_sum(tf.square(u_1_pred- u_1)) +\
+            #    tf.reduce_sum(tf.square(v_1_pred- v_1)) + mse1
                     
         return mse0 + mse1   
     
@@ -519,7 +548,7 @@ class PI_FROG(NeuralNetwork):
                 self.set_weights(w)
                 tape.watch(self.D)
                 tape.watch(self.N)
-                loss_value = self.loss_basemodel(t, u_0, v_0, u_1, v_1)
+                loss_value = self.loss_basemodel(t, u_0, v_0, u_1, v_1, epoch)
             grad = tape.gradient(loss_value, self.wrap_training_variables())
             grad_flat = []
             for g in grad:
@@ -634,7 +663,7 @@ def get_PINN(hp = hp, datafname = 'PI_FROG_SIM_v1.mat',indexnum = 'last',ModelDi
     sim_hpBM,sim_dataBM,NN_hpBM = prep_data(hpBM['datafname'] ,hpBM, GlobalPath = GlobalPath, RKsteps = hp['RKsteps'], N=hp["N"], SNR=hp['SNR'],q = hp['q'])
     lambdasBM_star = (sim_hpBM['D']/2,sim_hpBM['N2'])
 
-    lambdasBM_star = (1.0,2.0)
+    lambdasBM_star = (1.0,1.414)
 
     
     # The True parameter values
@@ -660,40 +689,7 @@ def get_PINN(hp = hp, datafname = 'PI_FROG_SIM_v1.mat',indexnum = 'last',ModelDi
     FROG_0 = FROG_0_skimg.T
     FROG_1 = FROG_1_skimg.T
 
-    E_0 = FROG_0_content['et_ret'].flatten()
-    E_1 = FROG_1_content['et_ret'].flatten()
-
-    print(np.imag(E_0))
-    
-
-    x_old = np.linspace(0, 1, 128)
-    x_new = np.linspace(0, 1, 64)
-
-    E_real_0_func = interp1d(x_old, np.real(E_0), kind='cubic')
-    E_real_0 = E_real_0_func(x_new)  # shape (64,)
-    E_real_0 = E_real_0.reshape(64, 1)
-    E_real_0 = [E_real_0]
-
-    
-    E_imag_0_func = interp1d(x_old, np.imag(E_0), kind='cubic')
-    E_imag_0 = E_imag_0_func(x_new)
-    E_imag_0 = E_imag_0.reshape(64, 1)
-    E_imag_0 = [E_imag_0]
-
-    
-    E_real_1_func = interp1d(x_old, np.real(E_1), kind='cubic')
-    E_real_1 = E_real_1_func(x_new)
-    E_real_1 = E_real_1.reshape(64, 1)
-    E_real_1 = [E_real_1]
-
-    
-    E_imag_1_func = interp1d(x_old, np.imag(E_1), kind='cubic')
-    E_imag_1 = E_imag_1_func(x_new)
-    E_imag_1 = E_imag_1.reshape(64, 1)
-    E_imag_1 = [E_imag_1]
-
-
-
+   
     #print(E_real_0[0].shape)
     #E0_interp = interp_real_0(x_new) + 1j * interp_imag_0(x_new)
     #E1_interp = interp_real_1(x_new) + 1j * interp_imag_1(x_new)
@@ -703,12 +699,81 @@ def get_PINN(hp = hp, datafname = 'PI_FROG_SIM_v1.mat',indexnum = 'last',ModelDi
 
     #2nd time window NN_hpBM['t'][0]
 
-    t_span = np.linspace(time_axis[0], time_axis[-1], 64)
+    newsize = 256
+
+    t_span = np.linspace(time_axis[0], time_axis[-1], newsize)
+
 
     # 2. Time grid from NN_hpBM (assumed to match model input)
-    t_nn = NN_hpBM['t']
+    #t_nn = NN_hpBM['t']
+
+    t_new = np.linspace(NN_hp['t'][0], NN_hp['t'][-1], newsize)
+
 
     print(NN_hpBM['t'].shape)
+
+    
+    Frog1SSFM_data = ModelDirectory + r'/data/SSFM_N2=2.mat'
+
+    FROG1SSFM_content = sio.loadmat(Frog1SSFM_data)
+    
+
+    E_0 = FROG_0_content['et_ret'].flatten()
+    
+    #E_1 = FROG_1_content['et_ret'].flatten()
+    U_1 = FROG1SSFM_content['u_end'].flatten()
+    V_1 = FROG1SSFM_content['v_end'].flatten()
+
+    E_1 = U_1 + 1j* V_1
+
+
+    
+
+    print("np.size(NN_hp['t']) " + str(np.size(NN_hp['t'])))
+    
+
+    # === 3. Interpolate real and imaginary parts separately ===
+    interp_real_0 = interp1d(time_axis, np.real(E_0), kind='cubic', bounds_error=False, fill_value=0.0)
+    interp_imag_0 = interp1d(time_axis, np.imag(E_0), kind='cubic', bounds_error=False, fill_value=0.0)
+
+    interp_real_1 = interp1d(time_axis, np.real(E_1), kind='cubic', bounds_error=False, fill_value=0.0)
+    interp_imag_1 = interp1d(time_axis, np.imag(E_1), kind='cubic', bounds_error=False, fill_value=0.0)
+    
+    # === 4. Apply interpolation ===
+    E_0 = interp_real_0(t_new) + 1j * interp_imag_0(t_new)
+    E_1 = interp_real_1(t_new) + 1j * interp_imag_1(t_new)
+
+    #x_old = np.linspace(0, 1, 128)
+
+    #x_new = np.linspace(0, 1, newsize)
+
+    #E_real_0_func = interp1d(x_old, np.real(E_0), kind='cubic')
+    #E_real_0 = E_real_0_func(x_new)  # shape (64,)
+    E_real_0 = np.real(E_0)
+    E_real_0 = E_real_0.reshape(newsize,1)
+    E_real_0 = [E_real_0]
+
+    
+    #E_imag_0_func = interp1d(x_old, np.imag(E_0), kind='cubic')
+    #_imag_0 = E_imag_0_func(x_new)
+    
+    E_imag_0 = np.imag(E_0)
+    E_imag_0 = E_imag_0.reshape(newsize,1)
+    E_imag_0 = [E_imag_0]
+
+    
+    #E_real_1_func = interp1d(x_old, np.real(E_1), kind='cubic')
+    #_real_1 = E_real_1_func(x_new)
+    E_real_1 = np.real(E_1)
+    E_real_1 = E_real_1.reshape(newsize,1)
+    E_real_1 = [E_real_1]
+
+    
+    #E_imag_1_func = interp1d(x_old, np.imag(E_1), kind='cubic')
+    #E_imag_1 = E_imag_1_func(x_new)
+    E_imag_1 = np.imag(E_1)
+    E_imag_1 = E_imag_1.reshape(newsize,1)
+    E_imag_1 = [E_imag_1]
 
     
     
@@ -725,7 +790,7 @@ def get_PINN(hp = hp, datafname = 'PI_FROG_SIM_v1.mat',indexnum = 'last',ModelDi
     
     # --- Plot 2: Real(E0) vs NN time grid ---
     plt.figure(figsize=(10, 5))
-    plt.plot(t_nn, np.real(E_real_0)[0].squeeze(), 'x--', label='Re(E0_interp) vs NN_hpBM[\'t\'][0]', alpha=0.7)
+    plt.plot(t_span, np.real(E_real_0)[0].squeeze(), 'x--', label='Re(E0_interp) vs NN_hpBM[\'t\'][0]', alpha=0.7)
     plt.xlabel("Time (fs)")
     plt.ylabel("Re(E0)")
     plt.title("Re(E0_interp) vs NN time grid")
@@ -735,9 +800,10 @@ def get_PINN(hp = hp, datafname = 'PI_FROG_SIM_v1.mat',indexnum = 'last',ModelDi
     plt.savefig('E0real_vs_NNgrid.png')
     plt.close()
 
+    '''
     # --- Plot 2: Real(E0) vs NN time grid ---
     plt.figure(figsize=(10, 5))
-    plt.plot(t_nn, NN_hp['u_0'][0].squeeze(), 'x--', label='Re(E0_interp) vs NN_hpBM[\'t\'][0]', alpha=0.7)
+    plt.plot(t_span, NN_hp['u_0'][0].squeeze(), 'x--', label='Re(E0_interp) vs NN_hpBM[\'t\'][0]', alpha=0.7)
     plt.xlabel("Time (fs)")
     plt.ylabel("Re(E0)")
     plt.title("Re(E0_interp) vs NN time grid")
@@ -749,7 +815,7 @@ def get_PINN(hp = hp, datafname = 'PI_FROG_SIM_v1.mat',indexnum = 'last',ModelDi
 
     print(np.imag(E_imag_0)[0].squeeze())
     plt.figure(figsize=(10, 5))
-    plt.plot(t_nn, E_imag_0[0].squeeze(), 'x--', label='Im(E0_interp) vs NN_hpBM[\'t\'][0]', alpha=0.7)
+    plt.plot(t_span, E_imag_0[0].squeeze(), 'x--', label='Im(E0_interp) vs NN_hpBM[\'t\'][0]', alpha=0.7)
     plt.xlabel("Time (fs)")
     plt.ylabel("Imag(E0)")
     plt.title("Imag(E0_interp) vs NN time grid")
@@ -758,8 +824,9 @@ def get_PINN(hp = hp, datafname = 'PI_FROG_SIM_v1.mat',indexnum = 'last',ModelDi
     plt.tight_layout()
     plt.savefig('E0Imag_vs_NNgrid.png')
     plt.close()
+    '''
 
-
+    
      
     
 
@@ -800,15 +867,38 @@ def get_PINN(hp = hp, datafname = 'PI_FROG_SIM_v1.mat',indexnum = 'last',ModelDi
     #pinn.training_data = (NN_hp['FROG_0'],NN_hp['FROG_1'],NN_hp['t'],NN_hp['w'])
     #pinn.PerfectData = (NN_hp['FROG_0'],NN_hp['FROG_1'],np.real(sim_data['Clean_h0']),np.imag(sim_data['Clean_h0']),np.real(sim_data['Clean_h1']),np.imag(sim_data['Clean_h1']))
 
-    pinn.training_data = ([FROG_0],[FROG_1],t_span,NN_hp['w'])
-    pinn.PerfectData = ([FROG_0],[FROG_1] , E_real_0[0].squeeze() ,E_imag_0[0].squeeze(),E_real_1[0].squeeze(),E_imag_1[0].squeeze())
+    pinn.training_data = ([FROG_0],[FROG_1],t_new,NN_hp['w'])
+    #pinn.PerfectData = ([FROG_0],[FROG_1] , E_real_0[0].squeeze() ,E_imag_0[0].squeeze(),E_real_1[0].squeeze(),E_imag_1[0].squeeze())
+    pinn.PerfectData = (FROG_0,FROG_1,E_real_0,E_imag_0,E_real_1,E_imag_1)
+
+    def getFROGtruth():
+        shift_amount = 0  # Left circular shift
+
+        #truth_h0r = np.roll(np.real(sim_data['Clean_h0']), shift=shift_amount, axis=0)
+        #truth_h0i = np.roll(np.imag(sim_data['Clean_h0']), shift=shift_amount, axis=0)
+        #truth_h1r = np.roll(np.real(sim_data['Clean_h1']), shift=shift_amount, axis=0)
+        #truth_h1i = np.roll(np.imag(sim_data['Clean_h1']), shift=shift_amount, axis=0)
+
+        truth_h0r = np.roll(np.real(E_real_0), shift=shift_amount, axis=0)
+        truth_h0i = np.roll(E_imag_0, shift=shift_amount, axis=0).astype(np.float64)
+        truth_h1r = np.roll(np.real(E_real_1), shift=shift_amount, axis=0)
+        truth_h1i = np.roll(E_imag_1, shift=shift_amount, axis=0).astype(np.float64)
+        #truth_h0r = np.real(sim_data['Clean_h0'])
+        #truth_h0i = np.imag(sim_data['Clean_h0'])
+        #truth_h1r = np.real(sim_data['Clean_h1'])
+        #truth_h1i = np.imag(sim_data['Clean_h1'])
+
+        truth_h0 = tf.complex(truth_h0r, truth_h0i)
+        truth_h1 = tf.complex(truth_h1r, truth_h1i)
+
+        return truth_h0r, truth_h0i, truth_h1r, truth_h1i
 
     
     def Start_PINN_basemodel_fit():
         #pinnBM.fit_basemodel(NN_hpBM['t'], NN_hpBM['u_0'], NN_hpBM['v_0'],\
         #          NN_hpBM['u_1'], NN_hpBM['v_1'])
 
-        pinnBM.fit_basemodel(t_span, E_real_0, E_imag_0,\
+        pinnBM.fit_basemodel(t_new, E_real_0, E_imag_0,\
                   E_real_1, E_imag_1)
     
     def Start_PINN_fit(loadbasemodel = False):
@@ -831,6 +921,7 @@ def get_PINN(hp = hp, datafname = 'PI_FROG_SIM_v1.mat',indexnum = 'last',ModelDi
     pinn.Start_fit = Start_PINN_fit
     pinn.Start_fit_basemodel = Start_PINN_basemodel_fit
     pinn.Continue_fit = Continue_PINN_fit
+    pinn.getMakeFROG = getFROGtruth
     
     if Load_Trained_model:
         pinn.load_latest_checkpoint(indexnum = indexnum)
