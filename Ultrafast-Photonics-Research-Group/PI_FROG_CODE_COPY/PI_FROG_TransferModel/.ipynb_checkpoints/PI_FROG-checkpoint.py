@@ -69,8 +69,8 @@ hp['SNR'] = np.inf
 hp['q']     = 100
 
 # Fourier Axes
-hp['dt']    = 0.5/hp['N'] # in units of T0
-hp['WinT']  = 2 # in hp[T0 single sided
+hp['dt']  = 0.5/hp['N'] # in units of T0 #12 4
+hp['WinT']  = 2 # in hp[T0 single sided #6 16
 hp['nt']    = int(2*hp['WinT']/(hp['dt']))
 hp['nyq_w'] = np.pi/(hp['dt'])
 hp['dw0']   = np.pi/(hp['WinT'])
@@ -93,14 +93,15 @@ class PI_FROG(NeuralNetwork):
         self.q = max(NN_hp['q'], 1)
         self.RKsteps = NN_hp['RKsteps']
         
-        t_new = np.linspace(NN_hp['t'][0], NN_hp['t'][-1], 256)
+        #t_new = np.linspace(NN_hp['t'][0], NN_hp['t'][-1], 256)
 
-        self.t = t_new
+        #self.t = t_new
         self.z = NN_hp['z']
+        self.t = NN_hp['t']
+
         n = len(self.t)
         
         self.w = np.arange(-n/2,n/2)*np.pi/(NN_hp['dt']*n)
-        #self.t = NN_hp['t']*2
         #self.w = np.linspace(-6.4,6.4, len(self.t))
 
         
@@ -494,20 +495,20 @@ class PI_FROG(NeuralNetwork):
             #    tf.reduce_sum(tf.square(v_1_pred[emod:emod+16, :]- v_1[emod:emod+16, :])) + mse1
 
             # MSE loss function for each step at input 0 and output 1 of the RK of q order stages.
-            I0pred = tf.square(u_0_pred) + tf.square(v_0_pred)
-            I0 = tf.square(u_0) + tf.square(v_0)
+            #I0pred = tf.square(u_0_pred) + tf.square(v_0_pred)
+            #I0 = tf.square(u_0) + tf.square(v_0)
 
-            I1pred = tf.square(u_1_pred) + tf.square(v_1_pred)
-            I1 = tf.square(u_1) + tf.square(v_1)
+            #I1pred = tf.square(u_1_pred) + tf.square(v_1_pred)
+            #I1 = tf.square(u_1) + tf.square(v_1)
 
-            mse0 = tf.reduce_sum(tf.square(I0pred- I0)) + mse0
-            mse1 = tf.reduce_sum(tf.square(I1pred - I1)) + mse1
+            #mse0 = tf.reduce_sum(tf.square(I0pred- I0)) + mse0
+            #mse1 = tf.reduce_sum(tf.square(I1pred - I1)) + mse1
             
-            #mse0 = tf.reduce_sum(tf.square(u_0_pred- u_0)) +\
-            #    tf.reduce_sum(tf.square(v_0_pred- v_0)) + mse0
+            mse0 = tf.reduce_sum(tf.square(u_0_pred- u_0)) +\
+                tf.reduce_sum(tf.square(v_0_pred- v_0)) + mse0
                 
-            #mse1 = tf.reduce_sum(tf.square(u_1_pred- u_1)) +\
-            #    tf.reduce_sum(tf.square(v_1_pred- v_1)) + mse1
+            mse1 = tf.reduce_sum(tf.square(u_1_pred- u_1)) +\
+                tf.reduce_sum(tf.square(v_1_pred- v_1)) + mse1
                     
         return mse0 + mse1   
     
@@ -571,8 +572,13 @@ class PI_FROG(NeuralNetwork):
         V_pred = UV[:,:,1]
         h0mean = tf.complex(tf.math.reduce_mean(U_0_star[0],axis = 1), tf.math.reduce_mean(V_0_star[0],axis = 1))
         h1mean = tf.complex(tf.math.reduce_mean(U_1_star[0],axis = 1), tf.math.reduce_mean(V_1_star[0],axis = 1))
+
+        print("h0mean " + str(h0mean.shape))
+        
         FROG0_pred = makeFROG(h0mean,h0mean,pad = self.pad,wcrop = self.nw)
         FROG1_pred = makeFROG(h1mean,h1mean,pad = self.pad,wcrop = self.nw)
+
+        
         return U_0_star, V_0_star, U_1_star, V_1_star, U_pred, V_pred, FROG0_pred,FROG1_pred
     
     def load_latest_checkpoint(self, indexnum = 'last',basemodel = False):
@@ -629,9 +635,10 @@ class PI_FROG(NeuralNetwork):
 
       
 #%% TRAININGÂ THEÂ MODEL
-def get_PINN(hp = hp, datafname = 'PI_FROG_SIM_v1.mat',indexnum = 'last',ModelDirectory = os.getcwd(),D_trainable = False, N2_trainable = False, Load_Trained_model = False):
+def get_PINN(hp = hp, datafname = 'PINN_FROG_model_gaussian_N=2.0_dist=1.mat',indexnum = 'last',ModelDirectory = os.getcwd(),D_trainable = False, N2_trainable = False, Load_Trained_model = False):
     # Getting the data
     # datafname = 'GNLSE_Disc_Raman_On.mat'
+    #PINN_FROG_model_gaussian_N=2.0_dist=1.mat
     if 'datafname' in hp:
         datafname = hp['datafname']
     hp['datafname'] = datafname
@@ -640,11 +647,16 @@ def get_PINN(hp = hp, datafname = 'PI_FROG_SIM_v1.mat',indexnum = 'last',ModelDi
     # The True parameter values
     # Setting the output layer dynamically
     hp["layers"][-1] = int(2*NN_hp['q']*hp['RKsteps'])
+    
     lambdas_star = (sim_hp['D']/2,sim_hp['N2'])
+    #lambdas_star = (0.5,1.414)
+    
     Trainable_Variables = (D_trainable, N2_trainable)
     
     print("D_Truth sim" + str(sim_hp['D']/2))
     print("N2_Truth sim" + str(sim_hp['N2']))
+
+    
     
     # Creating the model
     logger = Logger(hp,Directory = ModelDirectory)
@@ -654,7 +666,8 @@ def get_PINN(hp = hp, datafname = 'PI_FROG_SIM_v1.mat',indexnum = 'last',ModelDi
     hpBM['nt_epochs'] =    hp['BM_nt_epochs']
     hpBM["log_frequency"] = hp["BM_log_frequency"]
     hpBM["log_checkpoint_freq"] = hp["BM_log_checkpoint_freq"]
-    hpBM['datafname'] = datafname[0:-4] +'_BaseModel.mat' 
+    #hpBM['datafname'] = datafname[0:-4] +'_BaseModel.mat' 
+    hpBM['datafname'] = 'PINN_FROG_model_gaussian_N=2.0_dist=1.mat'
     
     loggerBM = Logger(hpBM, Directory = logger.SaveDir)
     logger.sim_data = sim_data
@@ -663,16 +676,32 @@ def get_PINN(hp = hp, datafname = 'PI_FROG_SIM_v1.mat',indexnum = 'last',ModelDi
     sim_hpBM,sim_dataBM,NN_hpBM = prep_data(hpBM['datafname'] ,hpBM, GlobalPath = GlobalPath, RKsteps = hp['RKsteps'], N=hp["N"], SNR=hp['SNR'],q = hp['q'])
     lambdasBM_star = (sim_hpBM['D']/2,sim_hpBM['N2'])
 
-    lambdasBM_star = (1.0,1.414)
+    #lambdasBM_star = (0.5,1.414)
 
     
     # The True parameter values
     pinnBM = PI_FROG(hpBM, loggerBM, NN_hpBM, NN_hpBM['ub'][0], NN_hpBM['lb'][0], Trainable_vars = (False, False), Init_guess = (lambdasBM_star))
+
+    print("NN_hpBM['u_0'] " + str(NN_hpBM['u_0'][0].shape))
+
+    u0 = NN_hp['u_0'][0].squeeze()  # shape becomes (512,)
+
+    # Plot real and imaginary parts
+    plt.figure(figsize=(10, 4))
+    plt.plot(np.real(u0), label='Real part')
+    plt.plot(np.imag(u0), label='Imaginary part')
+    plt.title('Complex Electric Field u_0')
+    plt.xlabel('Time index')
+    plt.ylabel('Amplitude')
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig('u_0plot.png')
     
     
     print("D_Truth base" + str(sim_hpBM['D']/2))
     print("N2_Truth base" + str(sim_hpBM['N2']))
-
+    '''
     Frog0path = ModelDirectory + r'/data/FROG_data_8nm_pad2_6.mat'
     Frog1path = ModelDirectory + r'/data/FROG_data_3mw_padmatch2_6.mat'
 
@@ -713,16 +742,20 @@ def get_PINN(hp = hp, datafname = 'PI_FROG_SIM_v1.mat',indexnum = 'last',ModelDi
     print(NN_hpBM['t'].shape)
 
     
-    Frog1SSFM_data = ModelDirectory + r'/data/SSFM_N2=2.mat'
+    Frog1SSFM_data = ModelDirectory + r'/data/gaussian_SSFM_N2=2.mat'
 
-    FROG1SSFM_content = sio.loadmat(Frog1SSFM_data)
+    FROGSSFM_content = sio.loadmat(Frog1SSFM_data)
     
 
-    E_0 = FROG_0_content['et_ret'].flatten()
+    #E_0 = FROG_0_content['et_ret'].flatten()
+
+    U_0 = FROGSSFM_content['u_beg'].flatten()
+    V_0 = FROGSSFM_content['v_beg'].flatten()
+    E_0 = U_0 + 1j* V_0
     
     #E_1 = FROG_1_content['et_ret'].flatten()
-    U_1 = FROG1SSFM_content['u_end'].flatten()
-    V_1 = FROG1SSFM_content['v_end'].flatten()
+    U_1 = FROGSSFM_content['u_end'].flatten()
+    V_1 = FROGSSFM_content['v_end'].flatten()
 
     E_1 = U_1 + 1j* V_1
 
@@ -799,6 +832,7 @@ def get_PINN(hp = hp, datafname = 'PI_FROG_SIM_v1.mat',indexnum = 'last',ModelDi
     plt.tight_layout()
     plt.savefig('E0real_vs_NNgrid.png')
     plt.close()
+    '''
 
     '''
     # --- Plot 2: Real(E0) vs NN time grid ---
@@ -833,6 +867,8 @@ def get_PINN(hp = hp, datafname = 'PI_FROG_SIM_v1.mat',indexnum = 'last',ModelDi
 
     print("NN_hp['u_0'][0] shape " + str( NN_hp['u_0'][0].shape))
     print("NN_hp['u_0'] length" + str(len(NN_hp['u_0'])))
+
+    print("timeshape " + str(NN_hpBM['t'].shape))
     
     
     # Check if base model exists 
@@ -863,26 +899,26 @@ def get_PINN(hp = hp, datafname = 'PI_FROG_SIM_v1.mat',indexnum = 'last',ModelDi
       return err, preds, truth
     logger.set_error_fn(error)
     
-    # Set the fitting and predicition functions for the specific data set 
-    #pinn.training_data = (NN_hp['FROG_0'],NN_hp['FROG_1'],NN_hp['t'],NN_hp['w'])
-    #pinn.PerfectData = (NN_hp['FROG_0'],NN_hp['FROG_1'],np.real(sim_data['Clean_h0']),np.imag(sim_data['Clean_h0']),np.real(sim_data['Clean_h1']),np.imag(sim_data['Clean_h1']))
+    # Set the fitting and predicition functions for the specific data set
+    pinn.training_data = (NN_hp['FROG_0'],NN_hp['FROG_1'],NN_hp['t'],NN_hp['w'])
+    pinn.PerfectData = (NN_hp['FROG_0'],NN_hp['FROG_1'],np.real(sim_data['Clean_h0']),np.imag(sim_data['Clean_h0']),np.real(sim_data['Clean_h1']),np.imag(sim_data['Clean_h1']))
 
-    pinn.training_data = ([FROG_0],[FROG_1],t_new,NN_hp['w'])
+    #pinn.training_data = ([FROG_0],[FROG_1],t_new,NN_hp['w'])
     #pinn.PerfectData = ([FROG_0],[FROG_1] , E_real_0[0].squeeze() ,E_imag_0[0].squeeze(),E_real_1[0].squeeze(),E_imag_1[0].squeeze())
-    pinn.PerfectData = (FROG_0,FROG_1,E_real_0,E_imag_0,E_real_1,E_imag_1)
+    #pinn.PerfectData = (FROG_0,FROG_1,E_real_0,E_imag_0,E_real_1,E_imag_1)
 
     def getFROGtruth():
         shift_amount = 0  # Left circular shift
 
-        #truth_h0r = np.roll(np.real(sim_data['Clean_h0']), shift=shift_amount, axis=0)
-        #truth_h0i = np.roll(np.imag(sim_data['Clean_h0']), shift=shift_amount, axis=0)
-        #truth_h1r = np.roll(np.real(sim_data['Clean_h1']), shift=shift_amount, axis=0)
-        #truth_h1i = np.roll(np.imag(sim_data['Clean_h1']), shift=shift_amount, axis=0)
+        truth_h0r = np.roll(np.real(sim_data['Clean_h0']), shift=shift_amount, axis=0)
+        truth_h0i = np.roll(np.imag(sim_data['Clean_h0']), shift=shift_amount, axis=0)
+        truth_h1r = np.roll(np.real(sim_data['Clean_h1']), shift=shift_amount, axis=0)
+        truth_h1i = np.roll(np.imag(sim_data['Clean_h1']), shift=shift_amount, axis=0)
 
-        truth_h0r = np.roll(np.real(E_real_0), shift=shift_amount, axis=0)
-        truth_h0i = np.roll(E_imag_0, shift=shift_amount, axis=0).astype(np.float64)
-        truth_h1r = np.roll(np.real(E_real_1), shift=shift_amount, axis=0)
-        truth_h1i = np.roll(E_imag_1, shift=shift_amount, axis=0).astype(np.float64)
+        #truth_h0r = np.roll(np.real(E_real_0), shift=shift_amount, axis=0)
+        #truth_h0i = np.roll(E_imag_0, shift=shift_amount, axis=0).astype(np.float64)
+        #truth_h1r = np.roll(np.real(E_real_1), shift=shift_amount, axis=0)
+        #truth_h1i = np.roll(E_imag_1, shift=shift_amount, axis=0).astype(np.float64)
         #truth_h0r = np.real(sim_data['Clean_h0'])
         #truth_h0i = np.imag(sim_data['Clean_h0'])
         #truth_h1r = np.real(sim_data['Clean_h1'])
@@ -895,11 +931,11 @@ def get_PINN(hp = hp, datafname = 'PI_FROG_SIM_v1.mat',indexnum = 'last',ModelDi
 
     
     def Start_PINN_basemodel_fit():
-        #pinnBM.fit_basemodel(NN_hpBM['t'], NN_hpBM['u_0'], NN_hpBM['v_0'],\
-        #          NN_hpBM['u_1'], NN_hpBM['v_1'])
+        pinnBM.fit_basemodel(NN_hpBM['t'], NN_hpBM['u_0'], NN_hpBM['v_0'],\
+                    NN_hpBM['u_1'], NN_hpBM['v_1'])
 
-        pinnBM.fit_basemodel(t_new, E_real_0, E_imag_0,\
-                  E_real_1, E_imag_1)
+        #pinnBM.fit_basemodel(t_new, E_real_0, E_imag_0,\
+        #         E_real_1, E_imag_1)
     
     def Start_PINN_fit(loadbasemodel = False):
         if loadbasemodel: 

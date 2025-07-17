@@ -29,7 +29,7 @@ def optimized_cFROG(cFROG_temp, Esig2):
         return tf.roll(cFROG_temp[i:i+1, :], shift=-i, axis=1)
     
     cFROG = tf.vectorized_map(roll_fn, tf.range(tf.shape(Esig2)[0]))
-    cFROG = tf.ensure_shape(cFROG, [512, None, 512])
+    cFROG = tf.ensure_shape(cFROG, [256, None, 256])
         
     return tf.concat(tf.unstack(cFROG), axis=0)
 
@@ -105,7 +105,7 @@ def makeFROG(Esig, Egate, pad = 0, wcrop = 0):
         pad = 0
         
         n = len(tf.squeeze(Esig))
-        print("n " + str(n))
+        #print("n " + str(n))
         #print("shape Esig2" + str(Esig2.shape))
 
 

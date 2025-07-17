@@ -78,8 +78,13 @@ def prep_data(datafname,hp, FROGtype = 'SHG', GlobalPath = os.getcwd(), RKsteps 
                 
     dt = -2*np.min(t)/N
     # idx_x = np.random.choice(Exact_h.shape[0], N_0, replace=False)
-    tNN = np.arange(-hp['nt']/2,hp['nt']/2)*hp['dt']
-    wNN = np.arange(-hp['nw']/2,hp['nw']/2)*hp['dw']
+    #tNN = np.arange(-hp['nt']/2,hp['nt']/2)*hp['dt']
+
+    factor = 5
+    tNN = t/5
+    #wNN = np.arange(-hp['nw']/2,hp['nw']/2)*hp['dw']
+    w = sim_data['w'].flatten()
+    wNN = w
     #t_1 = np.arange(-N/2,N/2)*dt
     # Get all the RK4 steps
     hh_0 = []; hh_1 = []
@@ -90,6 +95,7 @@ def prep_data(datafname,hp, FROGtype = 'SHG', GlobalPath = os.getcwd(), RKsteps 
     sim_data['Clean_h1'] = []
     for i in range(0,len(zINX)-1):
         # Get the input of the RK
+        
         h0 = np.expand_dims(np.interp(tNN,t,Exact_h[:,zINX[i]]),1)
         h0 = h0.squeeze()
         sim_data['Clean_h0'].append(h0)
@@ -99,6 +105,7 @@ def prep_data(datafname,hp, FROGtype = 'SHG', GlobalPath = os.getcwd(), RKsteps 
         vv_0.append(np.imag(h0))
         FROG_0.append(makeFROG(h0,h0, pad = hp['pad'], wcrop = hp['nw']))
         # Get the output of RK
+        
         h1 = np.expand_dims(np.interp(tNN,t,Exact_h[:,zINX[i+1]]),1)
         h1 = h1.squeeze()
         sim_data['Clean_h1'].append(h1)

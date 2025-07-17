@@ -13,10 +13,10 @@ pinn = PINN.get_PINN(D_trainable = False, N2_trainable = True)
 # Getting the model predictions
 D_pred, N_pred = pinn.get_params(numpy=True)
 
-pinn.Start_fit_basemodel()
+#pinn.Start_fit_basemodel()
 
 #pinn.Start_fit(loadbasemodel = True)
-#pinn.load_latest_checkpoint(indexnum=4995)
+pinn.load_latest_checkpoint(indexnum=9900, basemodel = True)
 
 
 u0p, v0p,u1p,v1p,Up,Vp,FROG0,FROG1,z,t = pinn.get_predict(numpy = True)
@@ -36,8 +36,8 @@ fig, axes = myplots.myfig('4Square_DW')
 
 xla = '$Delay (T_0)$'
 yla = '$\omega (1/T_0)$'
-myplots.myimshow(pinn.t,pinn.w,FROG0_sim.T,ax = axes[0],cbar = True,title = '$Truth_0$',xlabel = xla,ylabel = yla)
-myplots.myimshow(pinn.t,pinn.w,FROG1_sim.T,ax = axes[2],cbar = True,title = '$Truth_{L_z}$',xlabel = xla,ylabel = yla)
+myplots.myimshow(pinn.t,pinn.w,FROG0_sim[0].T,ax = axes[0],cbar = True,title = '$Truth_0$',xlabel = xla,ylabel = yla)
+myplots.myimshow(pinn.t,pinn.w,FROG1_sim[0].T,ax = axes[2],cbar = True,title = '$Truth_{L_z}$',xlabel = xla,ylabel = yla)
 
 myplots.myimshow(pinn.t,pinn.w,FROG0[0],ax = axes[1],cbar = True,title = '$Predicted_0$',xlabel = xla,ylabel = yla)
 myplots.myimshow(pinn.t,pinn.w,FROG1[0],ax = axes[3],cbar = True,title = '$Predicted_{L_z}$',xlabel = xla,ylabel = yla)

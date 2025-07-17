@@ -78,7 +78,7 @@ def run_model(model_id, grad, grad_flat, counter, weights, loss_value, all_h0r, 
 
     # ✅ Create a new independent model inside the worker process
     pinn = PINN.get_PINN(D_trainable=Dtrain, N2_trainable=True) #Dtrain false
-    #pinn.load_latest_checkpoint(indexnum= 4900, basemodel=True)  # Load weights for this instance
+    pinn.load_latest_checkpoint(indexnum= 9900, basemodel=True)  # Load weights for this instance
     
 
     # ✅ Run training independently for each process_

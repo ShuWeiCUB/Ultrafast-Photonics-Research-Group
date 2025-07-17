@@ -81,10 +81,10 @@ hp['q']     = 100
 
 print("hp['N'] " + str(hp['N']))
 # Fourier Axes
-hp['dt']    = 0.5/hp['N'] #12 in units of T0 #12 
+hp['dt']    = 1/hp['N'] #12 in units of T0 #12 
 
 print("dt " + str(hp['dt']))
-hp['WinT']  = 2 #6 # in hp[T0 single sided #6
+hp['WinT']  = 2 #6 # in hp[T0 single sided #6 in this case the 2 is going to be 2 ps
 print("WinT " + str(hp['WinT']))
 
 hp['nt']    = int(2*hp['WinT']/(hp['dt'])) # 2
@@ -124,7 +124,7 @@ class PI_FROG(NeuralNetwork):
         self.z = NN_hp['z']
         n = len(self.t)
         #self.w = np.arange(-n/2,n/2)*np.pi/(NN_hp['dt']*n)
-        self.t = NN_hp['t']*2
+        self.t = NN_hp['t']
         self.w = np.linspace(-6.4,6.4, n)
 
         # Add a reshape layer so the output is (,q,2) U is dim 1 V is dim 2
@@ -802,7 +802,7 @@ class PI_FROG(NeuralNetwork):
             '''
             time2 = time.time()
 
-            pad = 128  # number of zeros to add on each side of the time axis
+            pad = 0  # number of zeros to add on each side of the time axis
             crop = int(0.0 * (128 + 2 * pad))  # or whatever padded length is
 
             #h0_pad = np.pad(h0, pad_width=((0, 0), (pad, pad)), mode='constant', constant_values=0)
@@ -1492,13 +1492,13 @@ class PI_FROG(NeuralNetwork):
                 #self.D.assign([self.logger.logger_data['D'][-1]])
                 #self.N.assign([self.logger.logger_data['N2'][-1]])
 
-                self.D.assign([0.5]) 
-                self.N.assign([2.24]) 
+                self.D.assign([-0.5]) 
+                self.N.assign([2.0]) 
             else:
                 inx = int(indexnum/self.logger.log_checkpoint_freq)
                 #self.D.assign([self.logger.logger_data['D'][-1]])
-                self.D.assign([0.5]) 
-                self.N.assign([2.24]) 
+                self.D.assign([-0.5]) 
+                self.N.assign([2.0]) 
                 #self.N.assign([self.logger.logger_data['N2'][-1]])
             
     def get_predict(self, numpy = False):
@@ -1526,7 +1526,7 @@ class PI_FROG(NeuralNetwork):
 
       
 #%% TRAININGÂ THEÂ MODEL
-def get_PINN(hp = hp, datafname = 'PINN_FROG_modelN=2.0_dist=0.25pi',indexnum = 'last',ModelDirectory = os.getcwd(),D_trainable = False, N2_trainable = False, Load_Trained_model = False):
+def get_PINN(hp = hp, datafname = 'PINN_FROG_model_gaussian_N=2.0_dist=1',indexnum = 'last',ModelDirectory = os.getcwd(),D_trainable = False, N2_trainable = False, Load_Trained_model = False):
     # Getting the data
     # datafname = 'GNLSE_Disc_Raman_On.mat'
     if 'datafname' in hp:
@@ -1555,13 +1555,13 @@ def get_PINN(hp = hp, datafname = 'PINN_FROG_modelN=2.0_dist=0.25pi',indexnum = 
     hpBM["log_checkpoint_freq"] = hp["BM_log_checkpoint_freq"]
     
     #hpBM['datafname'] = datafname[0:-4] +'_BaseModel.mat' 
-    hpBM['datafname'] = 'PINN_FROG_modelN=1.6432_dist=0.25pi_BaseModel.mat'
+    hpBM['datafname'] = 'PINN_FROG_model_gaussian_N=2.0_dist=1.mat'
     
     loggerBM = Logger(hpBM, Directory = logger.SaveDir)
     logger.sim_data = sim_data
     #pinn = PI_FROG(hp, logger, NN_hp, NN_hp['ub'][0], NN_hp['lb'][0], Trainable_vars = Trainable_Variables, Init_guess = (lambdas_star))
     
-    sim_hpBM,sim_dataBM,NN_hpBM = prep_data(hpBM['datafname'] ,hpBM, GlobalPath = GlobalPath, RKsteps = hp['RKsteps'], N=hp["N"], SNR=hp['SNR'],q = hp['q'])
+    sim_hpBM,sim_dataBM,NN_hpBM = prep_data(hpBM['datafname'] ,hpBM, GlobalPath = GlobalPath, RKsteps = hp['RKsteps'], N=hp["N"], SNR=hp['SNR'],q = hp['q'], IsBaseModel = True)
     lambdasBM_star = (sim_hpBM['D']/2,sim_hpBM['N2'])
     # The True parameter values
     pinnBM = PI_FROG(hpBM, loggerBM, NN_hpBM, NN_hpBM['ub'][0], NN_hpBM['lb'][0], Trainable_vars = (False, False), Init_guess = (lambdasBM_star))
@@ -1691,19 +1691,19 @@ def get_PINN(hp = hp, datafname = 'PINN_FROG_modelN=2.0_dist=0.25pi',indexnum = 
 
     # size 26, 256
     # --- Resize with skimage.transform.resize ---
-    FROG_0_skimg = resize(FROG_0_both, (512, 256), order=3, preserve_range=True, anti_aliasing=True)
-    FROG_1_skimg = resize(FROG_1_both, (512, 256), order=3, preserve_range=True, anti_aliasing=True)
+    FROG_0_skimg = resize(FROG_0_both, (256, 256), order=3, preserve_range=True, anti_aliasing=True)
+    FROG_1_skimg = resize(FROG_1_both, (256, 256), order=3, preserve_range=True, anti_aliasing=True)
 
     #FROG_0_skimg = pad_frog_to_512x512(FROG_0_skimg)
     #FROG_1_skimg = pad_frog_to_512x512(FROG_1_skimg)
 
     # Assume FROG_0_skimg and FROG_1_skimg are (512, 256)
-    pad_left  = (512 - 256) // 2  # = 128
-    pad_right = 512 - 256 - pad_left  # = 128
+    #pad_left  = (512 - 256) // 2  # = 128
+    #pad_right = 512 - 256 - pad_left  # = 128
     
     # Pad columns (delay axis)
-    FROG_0_skimg = np.pad(FROG_0_skimg, pad_width=((0, 0), (pad_left, pad_right)), mode='constant', constant_values=0)
-    FROG_1_skimg = np.pad(FROG_1_skimg, pad_width=((0, 0), (pad_left, pad_right)), mode='constant', constant_values=0)
+    #FROG_0_skimg = np.pad(FROG_0_skimg, pad_width=((0, 0), (pad_left, pad_right)), mode='constant', constant_values=0)
+    #FROG_1_skimg = np.pad(FROG_1_skimg, pad_width=((0, 0), (pad_left, pad_right)), mode='constant', constant_values=0)
 
 
     
@@ -1747,10 +1747,13 @@ def get_PINN(hp = hp, datafname = 'PINN_FROG_modelN=2.0_dist=0.25pi',indexnum = 
     t_span = np.linspace(time_axis[0], time_axis[-1], newsize)
     f_span = np.linspace(freq_axis[0], freq_axis[-1], newsize)
 
+    #t_span = t_span
 
     factor = 1
     t_new = np.linspace(factor*NN_hp['t'][0], factor*NN_hp['t'][-1], newsize)
     f_new = np.linspace(-6.4, 6.4, newsize)
+
+    
 
     
     FROG_0_train_skimg = resize(FROG_0_train, (newfreq, newsize), order=3, preserve_range=True, anti_aliasing=True)
@@ -1951,7 +1954,7 @@ def get_PINN(hp = hp, datafname = 'PINN_FROG_modelN=2.0_dist=0.25pi',indexnum = 
         
         #truth_h1_pad = np.pad(truth_h1, pad_width=pad, mode='constant', constant_values=0)
 
-        pad = 128  # number of zeros to add on each side of the time axis
+        pad = 0  # number of zeros to add on each side of the time axis
         crop = int(0.0 * (128 + 2 * pad))  # or whatever padded length is
 
         truth_h0_pad = np.pad(truth_h0, pad_width=((0, 0), (pad, pad)), mode='constant', constant_values=0)
