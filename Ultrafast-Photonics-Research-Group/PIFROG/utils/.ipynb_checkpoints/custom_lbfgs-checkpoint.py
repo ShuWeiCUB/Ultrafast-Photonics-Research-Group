@@ -140,7 +140,7 @@ def lbfgs(opfunc, x, weights, barrier, config, state, do_verbose, log_fn,NeurNet
   
   maxIter = config.maxIter
 
-  maxIter = 1
+  maxIter = 20000
     
   maxEval = config.maxEval or maxIter*1.25
   tolFun = config.tolFun or 1e-5

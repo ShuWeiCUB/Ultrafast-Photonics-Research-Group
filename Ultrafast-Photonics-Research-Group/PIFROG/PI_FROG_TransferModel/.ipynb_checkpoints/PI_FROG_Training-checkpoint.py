@@ -78,14 +78,14 @@ def run_model(model_id, grad, grad_flat, counter, weights, loss_value, all_h0r, 
 
     # ✅ Create a new independent model inside the worker process
     pinn = PINN.get_PINN(D_trainable=Dtrain, N2_trainable=True) #Dtrain false
-    pinn.load_latest_checkpoint(indexnum= 9900, basemodel=True)  # Load weights for this instance
+    pinn.load_latest_checkpoint(indexnum= 4900, basemodel=True)  # Load weights for this instance
     
 
     # ✅ Run training independently for each process_
     #barrier.wait()  # Sync before any work
     #pinn.load_latest_checkpoint(indexnum=14995)
     barrier.wait()
-    pinn.Start_fit(qvalue, grad, grad_flat, counter, weights, loss_value, all_h0r, all_h0i, all_h1r, all_h1i, phase_loss_shared, frog_loss_shared, barrier,lock, loadbasemodel=True) 
+    #pinn.Start_fit(qvalue, grad, grad_flat, counter, weights, loss_value, all_h0r, all_h0i, all_h1r, all_h1i, phase_loss_shared, frog_loss_shared, barrier,lock, loadbasemodel=True) 
 
     print(f"Finished model {model_id} on CPU {mp.current_process().name}")
     
@@ -113,11 +113,11 @@ def run_model(model_id, grad, grad_flat, counter, weights, loss_value, all_h0r, 
         yla = '$\omega (1/T_0)$'
         #myplots.myimshow(pinn.t,pinn.w,FROG0_sim[0].T,ax = axes[0],cbar = True,title = '$Truth_0$',xlabel = xla,ylabel = yla)
         #myplots.myimshow(pinn.t,pinn.w,FROG1_sim[0].T,ax = axes[2],cbar = True,title = '$Truth_{L_z}$',xlabel = xla,ylabel = yla)
-        myplots.myimshow(pinn.w,pinn.t,FROG0_sim.T,ax = axes[0],cbar = True,title = '$Truth_0$',xlabel = 'ps',ylabel = 'THz')
-        myplots.myimshow(pinn.w,pinn.t,FROG1_sim.T,ax = axes[2],cbar = True,title = '$Truth_{L_z}$',xlabel = 'ps',ylabel = 'THz')
+        myplots.myimshow(pinn.w,pinn.t/5,FROG0_sim[0].T,ax = axes[0],cbar = True,title = '$Truth_0$',xlabel = 'ps',ylabel = 'THz')
+        myplots.myimshow(pinn.w,pinn.t/5,FROG1_sim[0].T,ax = axes[2],cbar = True,title = '$Truth_{L_z}$',xlabel = 'ps',ylabel = 'THz')
     
-        myplots.myimshow(pinn.w,pinn.t,FROG0[0].T,ax = axes[1],cbar = True,title = '$Predicted_0$',xlabel = 'ps',ylabel = 'THz')
-        myplots.myimshow(pinn.w,pinn.t,FROG1[0].T,ax = axes[3],cbar = True,title = '$Predicted_{L_z}$',xlabel = 'ps',ylabel = 'THz')
+        myplots.myimshow(pinn.w,pinn.t/5,FROG0[0],ax = axes[1],cbar = True,title = '$Predicted_0$',xlabel = 'ps',ylabel = 'THz')
+        myplots.myimshow(pinn.w,pinn.t/5,FROG1[0],ax = axes[3],cbar = True,title = '$Predicted_{L_z}$',xlabel = 'ps',ylabel = 'THz')
 
         #transpose to match shape
         #myplots.myimshow(pinn.w, pinn.t, FROG0[0].T, ax=axes[1], cbar=True, title='$Predicted_0$', xlabel=yla, ylabel=xla)
@@ -148,8 +148,8 @@ def run_model(model_id, grad, grad_flat, counter, weights, loss_value, all_h0r, 
         yla = '$\omega (1/T_0)$'
         #myplots.myimshow(pinn.t,pinn.w,FROG0_sim[0].T,ax = axes[0],cbar = True,title = '$SimTruth_0$',xlabel = xla,ylabel = yla)
         #myplots.myimshow(pinn.t,pinn.w,FROG1_sim[0].T,ax = axes[2],cbar = True,title = '$SimTruth_{L_z}$',xlabel = xla,ylabel = yla)
-        myplots.myimshow(pinn.w,pinn.t,FROG0_sim.T,ax = axes[0],cbar = True,title = '$ExpTruth_0$',xlabel = 'ps',ylabel = 'THz')
-        myplots.myimshow(pinn.w,pinn.t,FROG1_sim.T,ax = axes[2],cbar = True,title = '$ExpTruth_{L_z}$',xlabel = 'ps',ylabel = 'THz')
+        myplots.myimshow(pinn.w,pinn.t,FROG0_sim[0].T,ax = axes[0],cbar = True,title = '$ExpTruth_0$',xlabel = 'ps',ylabel = 'THz')
+        myplots.myimshow(pinn.w,pinn.t,FROG1_sim[0].T,ax = axes[2],cbar = True,title = '$ExpTruth_{L_z}$',xlabel = 'ps',ylabel = 'THz')
 
         FROG0fromh0, FROG1fromh1, U0sim, V0sim, U1sim, V1sim = pinn.getMakeFrog()
 
@@ -157,13 +157,143 @@ def run_model(model_id, grad, grad_flat, counter, weights, loss_value, all_h0r, 
         #FrogError0 = FROG0fromh0 - FROG0_sim[0]
         #FrogError1 = FROG1fromh1 - FROG1_sim[0]
         
-        myplots.myimshow(pinn.w,pinn.t,FROG0fromh0,ax = axes[1],cbar = True,title = '$fromRANA_0$',xlabel = 'ps',ylabel = 'THz')
-        myplots.myimshow(pinn.w,pinn.t,FROG1fromh1,ax = axes[3],cbar = True,title = '$fromRANA_{L_z}$',xlabel = 'ps',ylabel = 'THz')
+        myplots.myimshow(pinn.w,pinn.t,FROG0fromh0.T,ax = axes[1],cbar = True,title = '$fromRANA_0$',xlabel = 'ps',ylabel = 'THz')
+        myplots.myimshow(pinn.w,pinn.t,FROG1fromh1.T,ax = axes[3],cbar = True,title = '$fromRANA_{L_z}$',xlabel = 'ps',ylabel = 'THz')
 
         #myplots.myimshow(pinn.t,pinn.w,FrogError0,ax = axes[1],cbar = True,title = '$FrogError0$',xlabel = xla,ylabel = yla)
         #myplots.myimshow(pinn.t,pinn.w,FrogError1,ax = axes[3],cbar = True,title = '$FrogError1_{L_z}$',xlabel = xla,ylabel = yla)
 
         myplots.savemyfig('shifted-10_4Square_DW_makefrogtest')
+
+        autoBM = np.trapz(FROG0fromh0, axis = 0)
+        autoFROG0 = np.trapz(FROG0_sim[0], axis = 1)
+
+        autoBMfreq = np.trapz(FROG0fromh0, axis = 1)
+        autoFROG0freq = np.trapz(FROG0_sim[0], axis = 0)
+
+        autoFROG1 = np.trapz(FROG1_sim[0], axis = 1)
+        def simple_fwhm(y, x=None):
+            y = y / np.max(y)
+            half_max = 0.5
+            indices = np.where(y >= half_max)[0]
+        
+            if len(indices) < 2:
+                return None, None, None
+        
+            if x is None:
+                fwhm = indices[-1] - indices[0]
+                x0 = indices[0]
+                x1 = indices[-1]
+            else:
+                fwhm = x[indices[-1]] - x[indices[0]]
+                x0 = x[indices[0]]
+                x1 = x[indices[-1]]
+            return fwhm, x0, x1
+        
+                # Compute FWHMs
+        fwhm_bm, x0_bm, x1_bm = simple_fwhm(autoBM, x=pinn.t/5)
+        fwhm_frog0, x0_f0, x1_f0 = simple_fwhm(autoFROG0, x=pinn.t/5)
+
+        fwhm_bmf, x0_bmf, x1_bmf = simple_fwhm(autoBMfreq, x=pinn.w)
+        fwhm_frog0f, x0_f0f, x1_f0f = simple_fwhm(autoFROG0freq, x=pinn.w)
+
+        #autoBM = autoBM/np.max(autoBM)
+        #autoFROG0 = autoFROG0/np.max(autoFROG0)
+        #autoBMfreq = autoBMfreq/np.max(autoBMfreq)
+        #autoFROG0freq = autoFROG0freq/np.max(autoFROG0freq)
+
+        
+        print("FWHM BaseModel:", fwhm_bm, "fs")
+        print("FWHM FROG0:", fwhm_frog0, "fs")
+
+        print("FWHM BaseModel freq:", fwhm_bmf, "THz")
+        print("FWHM FROG0 freq:", fwhm_frog0f, "THz")
+        
+        # Plot with FWHM for BaseModel
+        plt.figure(figsize=(6, 4))
+        plt.title("BaseModel_input_init")
+        plt.plot(pinn.t/5, autoBM, label="Signal")
+        plt.axhline(0.5, color='gray', linestyle='--', linewidth=1)
+        if x0_bm is not None:
+            plt.plot([x0_bm, x1_bm], [0.5, 0.5], 'ro-', label=f'FWHM = {fwhm_bm:.2f} fs')
+        plt.xlabel("Time (fs)")
+        plt.legend()
+        plt.savefig('autoBMinit.png')
+        plt.close()
+        
+        # Plot with FWHM for FROG input
+        plt.figure(figsize=(6, 4))
+        plt.title("FROGinput_fromexp")
+        plt.plot(pinn.t/5, autoFROG0, label="Signal")
+        plt.axhline(0.5, color='gray', linestyle='--', linewidth=1)
+        if x0_f0 is not None:
+            plt.plot([x0_f0, x1_f0], [0.5, 0.5], 'ro-', label=f'FWHM = {fwhm_frog0:.2f} fs')
+        plt.xlabel("Time (fs)")
+        plt.legend()
+        plt.savefig('autoFROG0.png')
+        plt.close()
+
+                # Plot with FWHM for BaseModel
+        plt.figure(figsize=(6, 4))
+        plt.title("BaseModel_input_init")
+        plt.plot(pinn.w, autoBMfreq, label="Signal")
+        plt.axhline(0.0, color='gray', linestyle='--', linewidth=1)
+        if x0_bm is not None:
+            plt.plot([x0_bmf, x1_bmf], [0.5, 0.5], 'ro-', label=f'FWHM = {fwhm_bmf:.2f} THz')
+        plt.xlabel("Freq (THz)")
+        plt.legend()
+        plt.savefig('autoBMinitfreq.png')
+        plt.close()
+        
+        # Plot with FWHM for FROG input
+        plt.figure(figsize=(6, 4))
+        plt.title("FROGinput_fromexp")
+        plt.plot(pinn.w, autoFROG0freq, label="Signal")
+        plt.axhline(0.5, color='gray', linestyle='--', linewidth=1)
+        if x0_f0 is not None:
+            plt.plot([x0_f0f, x1_f0f], [0.5, 0.5], 'ro-', label=f'FWHM = {fwhm_frog0f:.2f} THz')
+        plt.xlabel("THz")
+        plt.legend()
+        plt.savefig('autoFROGfreq.png')
+        plt.close()
+
+
+
+
+
+
+        
+
+        plt.figure(figsize=(10, 4))
+
+        plt.subplot(1, 2, 1)
+        plt.plot(autoBM, label='autoBM')
+        plt.title("Autocorrelation: BM")
+        plt.xlabel("Delay index")
+        plt.ylabel("Amplitude")
+        plt.grid(True)
+        plt.legend()
+        
+        plt.subplot(1, 2, 2)
+        plt.plot(autoFROG0, label='autoFROG0', color='orange')
+        plt.title("Autocorrelation: FROG0")
+        plt.xlabel("Delay index")
+        plt.ylabel("Amplitude")
+        plt.grid(True)
+        plt.legend()
+        
+        plt.tight_layout()
+        plt.savefig("autocorrelations_comparison.png")
+
+        U2_BM = np.trapz(autoBM)
+        U2_FROG0 = np.trapz(autoFROG0)
+        
+        correction_factor = U2_FROG0/U2_BM
+
+        #FROG0_q_pred = FROG0_q_pred * correction_factor
+        #FROG1_q_pred = FROG1_q_pred * correction_factor
+
+        print("the correction factor for Base Model is " + str(correction_factor))
 
         
         def normalize(F):
@@ -263,7 +393,7 @@ def run_model(model_id, grad, grad_flat, counter, weights, loss_value, all_h0r, 
         print("U0sim shape:", np.shape(U0sim))   # Should be (len(t), len(z)) or similar
         print("Up shape:", np.shape(Up))   # Should be (len(t), len(z)) or similar
 
-        '''
+        
         zvalue = 0
 
         plt.subplot(2, 3, 1)
@@ -312,7 +442,7 @@ def run_model(model_id, grad, grad_flat, counter, weights, loss_value, all_h0r, 
 
         
         plt.savefig('pulse_plot')
-        '''
+        
 
         
         plt.figure(figsize=(12, 10))

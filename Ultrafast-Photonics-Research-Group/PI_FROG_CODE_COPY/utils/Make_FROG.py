@@ -1,6 +1,9 @@
 import numpy as np
 import tensorflow as tf
 def makeFROG(Esig, Egate, pad = 0, wcrop = 0):
+
+    pad = 0
+    wcrop = 0
     Esig0 = Esig
     Egate0 = Egate
     if wcrop % 2 == 1:

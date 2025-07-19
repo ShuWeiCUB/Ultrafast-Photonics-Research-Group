@@ -13,10 +13,11 @@ pinn = PINN.get_PINN(D_trainable = False, N2_trainable = True)
 # Getting the model predictions
 D_pred, N_pred = pinn.get_params(numpy=True)
 
-#pinn.Start_fit_basemodel()
+pinn.Start_fit_basemodel()
 
 #pinn.Start_fit(loadbasemodel = True)
-pinn.load_latest_checkpoint(indexnum=9900, basemodel = True)
+pinn.load_latest_checkpoint(indexnum=4900, basemodel = True)
+#pinn.Start_fit_basemodel()
 
 
 u0p, v0p,u1p,v1p,Up,Vp,FROG0,FROG1,z,t = pinn.get_predict(numpy = True)

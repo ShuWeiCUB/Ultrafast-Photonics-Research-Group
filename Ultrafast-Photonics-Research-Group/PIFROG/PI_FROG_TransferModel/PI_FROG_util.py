@@ -84,9 +84,23 @@ def prep_data(datafname,hp, FROGtype = 'SHG', GlobalPath = os.getcwd(), RKsteps 
 
     #factor = 1
     #tNN = t/factor
+    
 
-    #if IsBaseModel:
-     #   tNN = t/10
+
+    
+    tNN = t
+    #print("np.max(tNN) BM" + str(np.max(tNN)))
+    #rint("np.min(tNN) " + str(np.min(tNN)))
+
+    #print("np.max(t) BM" + str(np.max(t)))
+    #print("np.min(t) BM" + str(np.min(t)))
+    #else:
+    #    print("np.max(tNN) " + str(np.max(tNN)))
+    #    print("np.min(tNN) " + str(np.min(tNN)))
+
+    #    print("np.max(t) " + str(np.max(t)))
+    #    print("np.min(t) " + str(np.min(t)))
+        
 
     
 
@@ -169,6 +183,169 @@ def prep_data(datafname,hp, FROGtype = 'SHG', GlobalPath = os.getcwd(), RKsteps 
     # sim_data['t'] = tau
     
     return sim_hp,sim_data,NN_hp
+
+def prep_dataBM(datafname,hp, FROGtype = 'SHG', GlobalPath = os.getcwd(), RKsteps = 1, N_u=None, N_f=None, N_n=None, q=100, ub=None, lb=None, SNR=np.inf, AmpNoise = True, N = 2**9, IsBaseModel = False):
+    dataPath = os.path.join(GlobalPath, "data")
+    utilsPath = os.path.join(GlobalPath,'..', "utils")
+    from Make_FROG import makeFROG
+    D = scipy.io.loadmat(os.path.join(dataPath,datafname))
+    D2 = D
+    # build a list of keys and values for each entry in the structure
+    vals = D['params'][0,0] #<-- set the array you want to access. 
+    keys = D['params'][0,0].dtype.descr
+    sim_hp = {}
+    
+    for i in range(len(keys)):
+        key = keys[i][0]
+        val = np.squeeze(vals[key])  # squeeze is used to covert matlat (1,n) arrays into numpy (1,) arrays. 
+        sim_hp[key] = np.array(val)
+        
+        
+    data_vals = D2['data'][0,0] #<-- set the array you want to access. 
+    data_keys = D2['data'][0,0].dtype.descr
+    sim_data = {}
+     
+    for i in range(len(data_keys)):
+        data_key = data_keys[i][0]
+        data_val = np.squeeze(data_vals[data_key])  # squeeze is used to covert matlat (1,n) arrays into numpy (1,) arrays. 
+        sim_data[data_key] = np.array(data_val) 
+   # Reading external data [t is 100x1, usol is 256x100 (solution), x is 256x1]
+    
+
+    # Flatten makes [[]] into [], [:,None] makes it a column vector
+    z = sim_data['z'].flatten() # T x 1
+    # Get all the Points where we have "collected" data i.e. divide z into the RK steps
+    Lz = z[-1]
+    dz = Lz/RKsteps
+    RKz = np.expand_dims(dz*(np.arange(0,RKsteps+1)),axis = 1) # +1 because the last point needs to be included at Lz as the 1
+    zINX = []
+    for zp in RKz:
+        zINX.append(np.argmin(np.abs(zp-z)))
+    
+    t = sim_data['t'].flatten() # N x 1
+    # Keeping the 2D data for the solution data (real() is maybe to make it float by default, in case of zeroes)
+    Exact_h = (sim_data['u_sim']).T+1j*sim_data['v_sim'].T # T x N
+
+    # Meshing x and t in 2D (256,100)
+    T, Z = np.meshgrid(t,z)
+
+    # Preparing the inputs x and t (meshed as X, T) for predictions in one single array, as X_star
+    TZ_star = np.hstack((T.flatten()[:,None], Z.flatten()[:,None]))
+
+    # Preparing the testing u_star
+    h_star = Exact_h.flatten()[:,None]
+                
+    dt = -2*np.min(t)/N
+    # idx_x = np.random.choice(Exact_h.shape[0], N_0, replace=False)
+    tNN = np.arange(-hp['nt']/2,hp['nt']/2)*hp['dt']
+
+    #factor = 1
+    #tNN = t/factor
+    
+
+
+    
+    tNN = tNN*10
+    #print("np.max(tNN) BM" + str(np.max(tNN)))
+    #rint("np.min(tNN) " + str(np.min(tNN)))
+
+    #print("np.max(t) BM" + str(np.max(t)))
+    #print("np.min(t) BM" + str(np.min(t)))
+    #else:
+    #    print("np.max(tNN) " + str(np.max(tNN)))
+    #    print("np.min(tNN) " + str(np.min(tNN)))
+
+    #    print("np.max(t) " + str(np.max(t)))
+    #    print("np.min(t) " + str(np.min(t)))
+        
+
+    
+
+    
+    
+    wNN = np.arange(-hp['nw']/2,hp['nw']/2)*hp['dw']
+    #t_1 = np.arange(-N/2,N/2)*dt
+    # Get all the RK4 steps
+    hh_0 = []; hh_1 = []
+    uu_0 = []; uu_1 = []
+    vv_0 = []; vv_1 = []
+    FROG_0 = []; FROG_1 = []
+    sim_data['Clean_h0'] = []; 
+    sim_data['Clean_h1'] = []
+    for i in range(0,len(zINX)-1):
+        # Get the input of the RK
+        #h0 = np.expand_dims(np.interp(tNN,t,Exact_h[:,zINX[i]]),1)
+        h0 = np.expand_dims(Exact_h[:, zINX[i]], 1)
+        h0 = h0.squeeze()
+        sim_data['Clean_h0'].append(h0)
+        h0 = np.expand_dims(h0, axis=1)
+        hh_0.append(h0)
+        uu_0.append(np.real(h0))
+        vv_0.append(np.imag(h0))
+        FROG_0.append(makeFROG(h0,h0, pad = hp['pad'], wcrop = hp['nw']))
+        # Get the output of RK
+        #h1 = np.expand_dims(np.interp(tNN,t,Exact_h[:,zINX[i+1]]),1)
+        h1 = np.expand_dims(Exact_h[:, zINX[i+1]], 1)
+
+        h1 = h1.squeeze()
+        sim_data['Clean_h1'].append(h1)
+        h1 = np.expand_dims(h1, axis=1)
+        hh_1.append(h1)
+        uu_1.append(np.real(h1))
+        vv_1.append(np.imag(h1))
+        FROG_1.append(makeFROG(h1,h1, pad = hp['pad'], wcrop = hp['nw']))
+        
+    
+    dz = np.asscalar(z[-1] - z[0])/(RKsteps)      
+    tmp = np.float32(np.loadtxt(os.path.join(utilsPath, "IRK_weights", "Butcher_IRK%d.txt" % (q)), ndmin = 2))
+    weights =  np.reshape(tmp[0:q**2+q], (q+1,q))     
+    IRK_alpha = weights[0:-1,:]
+    IRK_beta = weights[-1:,:] 
+    tmp = np.float32(np.loadtxt(os.path.join(utilsPath, "IRK_weights", "Butcher_IRKc%d.txt" % (q)), ndmin = 2))
+    
+    zNN = np.zeros(q*RKsteps)
+    for i in range(0,RKsteps):
+        zNN[i*q:q*(i+1)] = dz*tmp[:,0]+dz*i
+    
+  
+    NN_hp = {}
+    NN_hp['u_0'] = uu_0
+    NN_hp['v_0'] = vv_0
+    NN_hp['FROG_0'] = FROG_0
+    NN_hp['u_1'] = uu_1
+    NN_hp['v_1'] = vv_1
+    NN_hp['FROG_1'] = FROG_1
+    NN_hp['z']  =  zNN
+    
+    NN_hp['t'] = tNN
+    NN_hp['w'] = wNN
+    NN_hp['dz']  = dz
+    NN_hp['dt'] = dt
+    NN_hp['q']   = q
+    NN_hp['IRK_alpha'] = IRK_alpha
+    NN_hp['IRK_beta']  = IRK_beta
+    NN_hp['lb'] = np.array([t[0],z[0]])
+    NN_hp['ub'] = np.array([t[-1],z[-1]])
+    NN_hp['RKsteps'] = RKsteps
+    NN_hp['zINX']  = zINX
+    NN_hp['N']  = N
+    
+    NN_hp['Ram_res'] = np.interp(tNN,t,sim_hp['Ram_res'])
+    
+    # from SSFM_Solver import SSFM_GNLSE
+    # nsave_z = q-1 # Size of saved array
+    # nz = nsave_z*50
+    # save_freq = int(nz/nsave_z)
+    # u_sim, v_sim, h_sim, z2, tau = SSFM_GNLSE(np.sqrt(sim_hp['N2']), sim_hp['D']/2,IsAmpNoise = True, SNR = SNR,nz = nz, save_freq = save_freq, T0 = sim_hp['T0'],tWin = -t.min(),Lz = z.max())
+    # sim_data['u_sim'] = u_sim
+    # sim_data['v_sim'] = v_sim
+    # sim_data['z'] = z2.squeeze()
+    # sim_data['t'] = tau
+    
+    return sim_hp,sim_data,NN_hp
+
+
+
 
 
 def plot_prediction(u_0_pred, v_0_pred, u_1_pred, v_1_pred, u_pred, v_pred,sim_data,z,t,zNN,tNN,zINX,logger,pinn,lambdas_star):

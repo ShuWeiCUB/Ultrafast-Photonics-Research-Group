@@ -79,10 +79,13 @@ def prep_data(datafname,hp, FROGtype = 'SHG', GlobalPath = os.getcwd(), RKsteps 
     dt = -2*np.min(t)/N
     # idx_x = np.random.choice(Exact_h.shape[0], N_0, replace=False)
     #tNN = np.arange(-hp['nt']/2,hp['nt']/2)*hp['dt']
-    tNN = t
+
+    factor = 1
+    tNN = t/factor
     #wNN = np.arange(-hp['nw']/2,hp['nw']/2)*hp['dw']
     w = sim_data['w'].flatten()
     wNN = w
+
     #t_1 = np.arange(-N/2,N/2)*dt
     # Get all the RK4 steps
     hh_0 = []; hh_1 = []

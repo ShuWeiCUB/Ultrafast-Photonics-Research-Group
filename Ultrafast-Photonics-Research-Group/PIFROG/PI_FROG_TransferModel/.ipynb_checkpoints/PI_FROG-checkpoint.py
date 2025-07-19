@@ -36,7 +36,7 @@ sys.path.append(os.path.join(GlobalPath,'..', "utils"))
 tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
 from scipy.signal.windows import tukey as tuk
 from custom_lbfgs import lbfgs, Struct
-from PI_FROG_util import prep_data, plot_prediction
+from PI_FROG_util import prep_data, prep_dataBM, plot_prediction
 from neuralnetwork import NeuralNetwork
 from logger import Logger
 from Make_FROG import makeFROG
@@ -81,10 +81,10 @@ hp['q']     = 100
 
 print("hp['N'] " + str(hp['N']))
 # Fourier Axes
-hp['dt']    = 1/hp['N'] #12 in units of T0 #12 
+hp['dt']    = 2/hp['N'] #12 in units of T0 #12 
 
 print("dt " + str(hp['dt']))
-hp['WinT']  = 2 #6 # in hp[T0 single sided #6 in this case the 2 is going to be 2 ps
+hp['WinT']  = 4 #6 # in hp[T0 single sided #6 in this case the 2 is going to be 2 ps
 print("WinT " + str(hp['WinT']))
 
 hp['nt']    = int(2*hp['WinT']/(hp['dt'])) # 2
@@ -369,6 +369,8 @@ class PI_FROG(NeuralNetwork):
     
     #####ORGINAL CODE
     def UV_0_model(self, t, customDummy=None):
+
+        t = t*10
         if customDummy != None:
             dummy = customDummy
         else:
@@ -486,6 +488,8 @@ class PI_FROG(NeuralNetwork):
 
     
     def UV_1_model(self, t, customDummy=None):
+
+        t = t*10
         if customDummy != None:
             dummy = customDummy
         else:
@@ -733,14 +737,65 @@ class PI_FROG(NeuralNetwork):
             # [nw,nt]
             FROG0  = FROG_0[i]
             FROG1  = FROG_1[i]
+
+            
             ##################################!!!orginal
             #time1 = time.time()
-            
+
+            #FROG1 = FROG1 * 0.4738034399768933
+            #0.4735616340092876
+            #0.4738034399768933
+            #correction factor FROG1
             
             h0 = tf.complex(u_0_pred[:,q], v_0_pred[:,q])
             #h0 = tf.complex(tf.math.real(h0), tf.zeros_like(tf.math.real(h0)))
             
             h1 = tf.complex(u_1_pred[:,q], v_1_pred[:,q])
+
+            #h0 = h0/10
+            #h1 = h1/10
+
+
+            # Assuming h0 and h1 are defined as:
+            # h0 = tf.complex(u_0_pred[:,q], v_0_pred[:,q])
+            # h1 = tf.complex(u_1_pred[:,q], v_1_pred[:,q])
+            
+            # Convert to NumPy arrays
+            h0_np = h0.numpy()
+            h1_np = h1.numpy()
+
+            if epoch %10 ==0 and q == 99:      
+                fig, axs = plt.subplots(2, 2, figsize=(12, 6))
+                
+                axs[0, 0].plot(np.real(h0_np), label='Re(h0)')
+                axs[0, 0].plot(np.real(h1_np), label='Re(h1)', linestyle='--')
+                axs[0, 0].set_title('Real Part')
+                axs[0, 0].legend()
+                
+                axs[0, 1].plot(np.imag(h0_np), label='Im(h0)')
+                axs[0, 1].plot(np.imag(h1_np), label='Im(h1)', linestyle='--')
+                axs[0, 1].set_title('Imaginary Part')
+                axs[0, 1].legend()
+                
+                axs[1, 0].plot(np.abs(h0_np), label='|h0|')
+                axs[1, 0].plot(np.abs(h1_np), label='|h1|', linestyle='--')
+                axs[1, 0].set_title('Amplitude')
+                axs[1, 0].legend()
+                
+                axs[1, 1].plot(np.angle(h0_np), label='arg(h0)')
+                axs[1, 1].plot(np.angle(h1_np), label='arg(h1)', linestyle='--')
+                axs[1, 1].set_title('Phase')
+                axs[1, 1].legend()
+
+                save_dir = 'trainingimg_h'
+                os.makedirs(save_dir, exist_ok=True)
+                filename = 'h0andh1inloss' + str(int(epoch/10)) + '.png'
+                save_path = os.path.join(save_dir, filename)
+                plt.tight_layout()
+                plt.savefig(save_path)
+                plt.close(fig)
+
+
 
             #t = tf.cast(self.t, tf.float64)  # shape (64,)
 
@@ -802,8 +857,8 @@ class PI_FROG(NeuralNetwork):
             '''
             time2 = time.time()
 
-            pad = 0  # number of zeros to add on each side of the time axis
-            crop = int(0.0 * (128 + 2 * pad))  # or whatever padded length is
+            #pad = 0  # number of zeros to add on each side of the time axis
+            #crop = int(0.0 * (128 + 2 * pad))  # or whatever padded length is
 
             #h0_pad = np.pad(h0, pad_width=((0, 0), (pad, pad)), mode='constant', constant_values=0)
             #h1_pad = np.pad(h1, pad_width=((0, 0), (pad, pad)), mode='constant', constant_values=0)
@@ -811,24 +866,130 @@ class PI_FROG(NeuralNetwork):
             #h0 = np.pad(h0, pad_width=(pad, pad), mode='constant', constant_values=0)
             #1 = np.pad(h1, pad_width=(pad, pad), mode='constant', constant_values=0)
 
-            h0 = tf.pad(h0, paddings=[[pad, pad]], mode='CONSTANT')
-            h1 = tf.pad(h1, paddings=[[pad,pad]], mode ='CONSTANT')
+            #h0 = tf.pad(h0, paddings=[[pad, pad]], mode='CONSTANT')
+            #h1 = tf.pad(h1, paddings=[[pad,pad]], mode ='CONSTANT')
 
 
-            FROG0_q_pred = makeFROG(h0,h0,pad = 0,wcrop = crop)
-            FROG1_q_pred = makeFROG(h1,h1,pad = 0,wcrop = crop)
+            FROG0_q_pred = makeFROG(h0,h0,pad = 0,wcrop = 0)
+            FROG1_q_pred = makeFROG(h1,h1,pad = 0,wcrop = 0)
+
+            #correction_factor = 500.8537481523134
+
+            
+            #1265.027602492969 correction factor correct for other
+            #1265.0276024929688
+
+            #FROG0_q_pred = FROG0_q_pred*correction_factor
+            #FROG1_q_pred = FROG1_q_pred*correction_factor
+
+            '''
+            autoBM = np.trapz(FROG0_q_pred, axis = 0)
+            autoFROG0 = np.trapz(FROG0, axis = 0)
+
+            plt.figure(figsize=(10, 4))
+
+            plt.subplot(1, 2, 1)
+            plt.plot(autoBM, label='autoBM')
+            plt.title("Autocorrelation: BM")
+            plt.xlabel("Delay index")
+            plt.ylabel("Amplitude")
+            plt.grid(True)
+            plt.legend()
+            
+            plt.subplot(1, 2, 2)
+            plt.plot(autoFROG0, label='autoFROG0', color='orange')
+            plt.title("Autocorrelation: FROG0")
+            plt.xlabel("Delay index")
+            plt.ylabel("Amplitude")
+            plt.grid(True)
+            plt.legend()
+            
+            plt.tight_layout()
+            plt.savefig("autocorrelations_comparison.png")
+            
+
+            
+
+            correction_factor = autoFROG0/autoBM
+
+            FROG0_q_pred = FROG0_q_pred * correction_factor
+            FROG1_q_pred = FROG1_q_pred * correction_factor
+
+            print("the correction factor is " + str(correction_factor))
+            '''
+            
+
+            
+            
+            
+            # Convert tensors to NumPy arrays if needed
+            FROG0_q_pred_np = FROG0_q_pred.numpy()
+            FROG1_q_pred_np = FROG1_q_pred.numpy()
+            FROG0_np = FROG0.numpy()  # Transpose to match predicted shape
+            FROG1_np = FROG1.numpy()
+
+            # Optional: Apply log scaling to improve visibility
+            # Comment this block out if you want linear intensity
+            def log_scale(x):
+                return np.log1p(np.abs(x))  # log(1 + |x|)
+            
+            #FROG0_np = log_scale(FROG0_np)
+            #FROG0_q_pred_np = log_scale(FROG0_q_pred_np)
+            #FROG1_np = log_scale(FROG1_np)
+            #FROG1_q_pred_np = log_scale(FROG1_q_pred_np)
+            
+            # Plot
+
+            if epoch % 10==0 and q==99:
+                
+                fig, axs = plt.subplots(2, 2, figsize=(13, 10))
+                
+                im0 = axs[0, 0].imshow(FROG0_np.T, aspect='auto', cmap='inferno', origin='lower')
+                axs[0, 0].set_title('True FROG 0')
+                cbar0 = plt.colorbar(im0, ax=axs[0, 0])
+                cbar0.set_label('Log Intensity' if 'log' in log_scale.__name__ else 'Intensity')
+                
+                im1 = axs[0, 1].imshow(FROG0_q_pred_np, aspect='auto', cmap='inferno', origin='lower')
+                axs[0, 1].set_title('Predicted FROG 0')
+                cbar1 = plt.colorbar(im1, ax=axs[0, 1])
+                cbar1.set_label('Log Intensity' if 'log' in log_scale.__name__ else 'Intensity')
+                
+                im2 = axs[1, 0].imshow(FROG1_np.T, aspect='auto', cmap='inferno', origin='lower')
+                axs[1, 0].set_title('True FROG 1')
+                cbar2 = plt.colorbar(im2, ax=axs[1, 0])
+                cbar2.set_label('Log Intensity' if 'log' in log_scale.__name__ else 'Intensity')
+                
+                im3 = axs[1, 1].imshow(FROG1_q_pred_np, aspect='auto', cmap='inferno', origin='lower')
+                axs[1, 1].set_title('Predicted FROG 1')
+                cbar3 = plt.colorbar(im3, ax=axs[1, 1])
+                cbar3.set_label('Log Intensity' if 'log' in log_scale.__name__ else 'Intensity')
+                
+                # Label axes
+                for ax in axs.flatten():
+                    ax.set_xlabel('Delay')
+                    ax.set_ylabel('Frequency')
+                
+
+                save_dir = 'trainingimg'
+                os.makedirs(save_dir, exist_ok=True)
+                filename = 'frog_inloss' + str(int(epoch/10)) + '.png'
+                save_path = os.path.join(save_dir, filename)
+                plt.tight_layout()
+                plt.savefig(save_path)
+                plt.close(fig)
+
             
             time3 = time.time()
             
             # Option 1: Transpose to match shapes
-            #mse0 = tf.reduce_sum(tf.square(FROG0_q_pred - tf.transpose(FROG0)))
+            mse0 = tf.reduce_sum(tf.square(FROG0_q_pred - tf.transpose(FROG0)))
 
             # Option 2: Reshape if necessary
             #mse0 = tf.reduce_sum(tf.square(FROG0_q_pred - tf.reshape(FROG0, FROG0_q_pred.shape)))
 
             #originalcode
-            mse0 = tf.reduce_sum(tf.square(FROG0_q_pred-FROG0))
-            mse1 = tf.reduce_sum(tf.square(FROG1_q_pred-FROG1))
+            #mse0 = tf.reduce_sum(tf.square(FROG0_q_pred-FROG0))
+            #mse1 = tf.reduce_sum(tf.square(FROG1_q_pred-FROG1))
 
             #Penalize phase variations (smoothness constraint)
             #phase0 = tf.math.angle(h0)
@@ -838,7 +999,7 @@ class PI_FROG(NeuralNetwork):
             #phase_loss1 = tf.reduce_mean(tf.abs(phase1[1:] - phase1[:-1]))
             
             # Option 1: Transpose to match shapes
-            #mse1 = tf.reduce_sum(tf.square(FROG1_q_pred - tf.transpose(FROG1)))
+            mse1 = tf.reduce_sum(tf.square(FROG1_q_pred - tf.transpose(FROG1)))
             
             time4 = time.time()
             
@@ -1305,7 +1466,9 @@ class PI_FROG(NeuralNetwork):
 
                 
                 print("phase loss " + str(totalphaseloss))
-                print("frog loss " + str(totalfrogloss))
+
+                cf = 500.8537481523134
+                print("frog loss " + str(totalfrogloss*cf*cf))
 
                 
 
@@ -1468,6 +1631,8 @@ class PI_FROG(NeuralNetwork):
         
     def predict(self, t_star):
         t_star = tf.convert_to_tensor(t_star, dtype=self.dtype)
+        t_star = t_star / 10
+        
         dummy = self.createDummy(t_star)
         U_0_star, V_0_star, U_0, V_0, U_t_0, V_t_0 = self.UV_0_model(t_star, dummy)
         U_1_star, V_1_star,U_1, V_1, U_t_1, V_t_1 = self.UV_1_model(t_star, dummy)
@@ -1476,8 +1641,8 @@ class PI_FROG(NeuralNetwork):
         V_pred = UV[:,:,1]
         h0mean = tf.complex(tf.math.reduce_mean(U_0_star[0],axis = 1), tf.math.reduce_mean(V_0_star[0],axis = 1))
         h1mean = tf.complex(tf.math.reduce_mean(U_1_star[0],axis = 1), tf.math.reduce_mean(V_1_star[0],axis = 1))
-        FROG0_pred = makeFROG(h0mean,h0mean,pad = self.pad,wcrop = self.nw)
-        FROG1_pred = makeFROG(h1mean,h1mean,pad = self.pad,wcrop = self.nw)
+        FROG0_pred = makeFROG(h0mean,h0mean,pad = 0,wcrop = 0)
+        FROG1_pred = makeFROG(h1mean,h1mean,pad = 0,wcrop = 0)
         return U_0_star, V_0_star, U_1_star, V_1_star, U_pred, V_pred, FROG0_pred,FROG1_pred
     
     def load_latest_checkpoint(self, indexnum = 'last',basemodel = False):
@@ -1526,7 +1691,7 @@ class PI_FROG(NeuralNetwork):
 
       
 #%% TRAININGÂ THEÂ MODEL
-def get_PINN(hp = hp, datafname = 'PINN_FROG_model_gaussian_N=2.0_dist=1',indexnum = 'last',ModelDirectory = os.getcwd(),D_trainable = False, N2_trainable = False, Load_Trained_model = False):
+def get_PINN(hp = hp, datafname = 'PINN_FROG_model_chirpedgau64_N=2.0_dist=1.mat',indexnum = 'last',ModelDirectory = os.getcwd(),D_trainable = False, N2_trainable = False, Load_Trained_model = False):
     # Getting the data
     # datafname = 'GNLSE_Disc_Raman_On.mat'
     if 'datafname' in hp:
@@ -1555,7 +1720,7 @@ def get_PINN(hp = hp, datafname = 'PINN_FROG_model_gaussian_N=2.0_dist=1',indexn
     hpBM["log_checkpoint_freq"] = hp["BM_log_checkpoint_freq"]
     
     #hpBM['datafname'] = datafname[0:-4] +'_BaseModel.mat' 
-    hpBM['datafname'] = 'PINN_FROG_model_gaussian_N=2.0_dist=1.mat'
+    hpBM['datafname'] = 'PINN_FROG_model_chirpedgau64_N=2.0_dist=1'
     
     loggerBM = Logger(hpBM, Directory = logger.SaveDir)
     logger.sim_data = sim_data
@@ -1635,9 +1800,10 @@ def get_PINN(hp = hp, datafname = 'PINN_FROG_model_gaussian_N=2.0_dist=1',indexn
 
     
 
-    factor = 1
+    factor = 0.2
     t_new_pre = np.linspace(factor*NN_hp['t'][0], factor*NN_hp['t'][-1], newsize)
-    f_new_pre = np.linspace(-6.4, 6.4, newsize)
+    #t_new_pre = np.linspace(-2.5, 2.5, newsize)
+    f_new_pre = np.linspace(-1*6.4, 1*6.4, newsize)
 
 
     def interpolate_delay_axis(FROG, t_old, t_new):
@@ -1685,14 +1851,14 @@ def get_PINN(hp = hp, datafname = 'PINN_FROG_model_gaussian_N=2.0_dist=1',indexn
 
 
     # --- Resize with scipy.ndimage.zoom ---
-    zoom_factors = (512 / FROG_0.shape[0], 512 / FROG_0.shape[1])
+    zoom_factors = (64 / FROG_0.shape[0], 64 / FROG_0.shape[1])
     FROG_0_zoom = zoom(FROG_0_both, zoom_factors, order=3)
     FROG_1_zoom = zoom(FROG_1_both, zoom_factors, order=3)
 
     # size 26, 256
     # --- Resize with skimage.transform.resize ---
-    FROG_0_skimg = resize(FROG_0_both, (256, 256), order=3, preserve_range=True, anti_aliasing=True)
-    FROG_1_skimg = resize(FROG_1_both, (256, 256), order=3, preserve_range=True, anti_aliasing=True)
+    FROG_0_skimg = resize(FROG_0_both, (64, 64), order=3, preserve_range=True, anti_aliasing=True)
+    FROG_1_skimg = resize(FROG_1_both, (64, 64), order=3, preserve_range=True, anti_aliasing=True)
 
     #FROG_0_skimg = pad_frog_to_512x512(FROG_0_skimg)
     #FROG_1_skimg = pad_frog_to_512x512(FROG_1_skimg)
@@ -1709,17 +1875,24 @@ def get_PINN(hp = hp, datafname = 'PINN_FROG_model_gaussian_N=2.0_dist=1',indexn
     
     
     # --- Plot comparison ---
+    # --- Plot comparison ---
     fig, axs = plt.subplots(2, 2, figsize=(12, 8))
     
-    axs[0, 0].imshow(FROG_0_zoom, aspect='auto', cmap='inferno')
+    im00 = axs[0, 0].imshow(FROG_0_zoom, aspect='auto', cmap='inferno')
     axs[0, 0].set_title("FROG_0: scipy.ndimage.zoom")
-    axs[0, 1].imshow(FROG_0_skimg, aspect='auto', cmap='inferno')
-    axs[0, 1].set_title("FROG_0: skimage.transform.resize")
+    fig.colorbar(im00, ax=axs[0, 0])
     
-    axs[1, 0].imshow(FROG_1_zoom, aspect='auto', cmap='inferno')
+    im01 = axs[0, 1].imshow(FROG_0_skimg, aspect='auto', cmap='inferno')
+    axs[0, 1].set_title("FROG_0: skimage.transform.resize")
+    fig.colorbar(im01, ax=axs[0, 1])
+    
+    im10 = axs[1, 0].imshow(FROG_1_zoom, aspect='auto', cmap='inferno')
     axs[1, 0].set_title("FROG_1: scipy.ndimage.zoom")
-    axs[1, 1].imshow(FROG_1_skimg, aspect='auto', cmap='inferno')
+    fig.colorbar(im10, ax=axs[1, 0])
+    
+    im11 = axs[1, 1].imshow(FROG_1_skimg, aspect='auto', cmap='inferno')
     axs[1, 1].set_title("FROG_1: skimage.transform.resize")
+    fig.colorbar(im11, ax=axs[1, 1])
     
     for ax in axs.flat:
         ax.set_xlabel('Delay axis')
@@ -1728,9 +1901,37 @@ def get_PINN(hp = hp, datafname = 'PINN_FROG_model_gaussian_N=2.0_dist=1',indexn
     plt.tight_layout()
     plt.savefig('FROG0and1_interpolated.png')
 
-    FROG_0 = FROG_0_skimg.T
-    FROG_1 =  FROG_1_skimg.T
+    FROG_0 = FROG_0_skimg
+    FROG_1 =  FROG_1_skimg
 
+    # Step 1: Integrate over delay axis to get temporal autocorrelation
+    auto_0 = np.trapz(FROG_0, axis=0)  # shape: [freq]
+    auto_1 = np.trapz(FROG_1, axis=0)
+    
+
+    
+    # Step 2: Integrate autocorrelations to get scalar energy estimate
+    U2_0 = np.trapz(auto_0)
+    U2_1 = np.trapz(auto_1)
+    
+    # Step 3: Compute correction factor based on FROG ∝ |U|^4
+    correction_factor = (U2_0 / U2_1)  # since FROG ∝ U^2
+    
+    # Step 4: Normalize FROG_1 so its energy matches FROG_0
+
+    FROG_0 = FROG_0/500.8537481523134
+
+    FROG_1 = FROG_1/500.8537481523134
+
+    FROG_1 = FROG_1 *  0.4738034399768933
+
+
+    print("correction factor applied to FROG_PM " + str(correction_factor))
+
+    FROG_0 = FROG_0.T
+    FROG_1 = FROG_1.T
+
+    
     Frog1SSFM_data = ModelDirectory + r'/data/SSFM_N2=2.mat'
 
     FROG1SSFM_content = sio.loadmat(Frog1SSFM_data)
@@ -1741,17 +1942,35 @@ def get_PINN(hp = hp, datafname = 'PINN_FROG_model_gaussian_N=2.0_dist=1',indexn
     #FROG_1_train = FROG_1_content['Ishg_ret']
     FROG_1_train = FROG1SSFM_content['FROG_Lz']
 
-    newsize = 256
-    newfreq = 256
+    newsize = 64
+    newfreq = 64
 
     t_span = np.linspace(time_axis[0], time_axis[-1], newsize)
     f_span = np.linspace(freq_axis[0], freq_axis[-1], newsize)
 
-    #t_span = t_span
+    t_span = t_span
 
     factor = 1
     t_new = np.linspace(factor*NN_hp['t'][0], factor*NN_hp['t'][-1], newsize)
-    f_new = np.linspace(-6.4, 6.4, newsize)
+
+    print("first time " + str(NN_hp['t'][0]))
+    print("last time " + str(NN_hp['t'][-1]))
+    #t_new = np.linspace(-6.4, 6.4, newsize)
+    
+
+    plt.figure(figsize=(6,4))
+    plt.title("auto0")
+    plt.plot(t_new, auto_0)
+    plt.savefig('auto0')
+    plt.close()
+
+    plt.figure(figsize=(6,4))
+    plt.title("auto1")
+    plt.plot(t_new, auto_1)
+    plt.savefig('auto1')
+    plt.close()
+
+    
 
     
 
@@ -1859,12 +2078,12 @@ def get_PINN(hp = hp, datafname = 'PINN_FROG_model_gaussian_N=2.0_dist=1',indexn
     print("shapecleanh0" + str(np.real(sim_data['Clean_h0']).shape))
 
     #pinn.training_data = (FROG_0_train, FROG_1_train, NN_hp['t'], freq_axis)
-    pinn.training_data = (FROG_0_train, FROG_1_train, t_span, NN_hp['w'])
+    pinn.training_data = (FROG_0_NN, FROG_1_NN, t_span, NN_hp['w'])
 
 
     #pinn.PerfectData = (FROG_0,FROG_1,np.real(sim_data['Clean_h0']),np.imag(sim_data['Clean_h0']),np.real(sim_data['Clean_h1']),np.imag(sim_data['Clean_h1']))
     #pinn.PerfectData = (FROG_0,FROG_1,np.real(E_0),np.imag(E_0),np.real(E_1),np.imag(E_1))
-    pinn.PerfectData = (FROG_0,FROG_1,E_real_0,E_imag_0,E_real_1,E_imag_1)
+    pinn.PerfectData = (FROG_0_NN,FROG_1_NN,E_real_0,E_imag_0,E_real_1,E_imag_1)
 
     datapath = ModelDirectory + r'/data/PINN_FROG_modelN=2.0_dist=1.mat'
 
@@ -1884,15 +2103,15 @@ def get_PINN(hp = hp, datafname = 'PINN_FROG_model_gaussian_N=2.0_dist=1',indexn
     def getFROGtruth():
         shift_amount = 0  # Left circular shift
 
-        #truth_h0r = np.roll(np.real(sim_data['Clean_h0']), shift=shift_amount, axis=0)
-        #truth_h0i = np.roll(np.imag(sim_data['Clean_h0']), shift=shift_amount, axis=0)
-        #truth_h1r = np.roll(np.real(sim_data['Clean_h1']), shift=shift_amount, axis=0)
-        #truth_h1i = np.roll(np.imag(sim_data['Clean_h1']), shift=shift_amount, axis=0)
+        truth_h0r = np.roll(np.real(sim_data['Clean_h0']), shift=shift_amount, axis=0)
+        truth_h0i = np.roll(np.imag(sim_data['Clean_h0']), shift=shift_amount, axis=0)
+        truth_h1r = np.roll(np.real(sim_data['Clean_h1']), shift=shift_amount, axis=0)
+        truth_h1i = np.roll(np.imag(sim_data['Clean_h1']), shift=shift_amount, axis=0)
 
-        truth_h0r = np.roll(np.real(E_real_0), shift=shift_amount, axis=0)
-        truth_h0i = np.roll(E_imag_0, shift=shift_amount, axis=0).astype(np.float64)
-        truth_h1r = np.roll(np.real(E_real_1), shift=shift_amount, axis=0)
-        truth_h1i = np.roll(E_imag_1, shift=shift_amount, axis=0).astype(np.float64)
+        #truth_h0r = np.roll(np.real(E_real_0), shift=shift_amount, axis=0)
+        #truth_h0i = np.roll(E_imag_0, shift=shift_amount, axis=0).astype(np.float64)
+        #truth_h1r = np.roll(np.real(E_real_1), shift=shift_amount, axis=0)
+        #truth_h1i = np.roll(E_imag_1, shift=shift_amount, axis=0).astype(np.float64)
         #truth_h0r = np.real(sim_data['Clean_h0'])
         #truth_h0i = np.imag(sim_data['Clean_h0'])
         #truth_h1r = np.real(sim_data['Clean_h1'])
@@ -1946,6 +2165,7 @@ def get_PINN(hp = hp, datafname = 'PINN_FROG_model_gaussian_N=2.0_dist=1',indexn
         plt.savefig('Ereal_clean.png')
         plt.close()
         
+        
 
         #print("truth_h0 shape "  + str(truth_h0.shape))
         
@@ -1976,6 +2196,8 @@ def get_PINN(hp = hp, datafname = 'PINN_FROG_model_gaussian_N=2.0_dist=1',indexn
 
         FROG0fromh0 = makeFROG(truth_h0_pad,truth_h0_pad,pad = 0,wcrop = crop)
         FROG1fromh1 = makeFROG(truth_h1_pad,truth_h1_pad,pad = 0, wcrop = crop)
+        
+
 
         return FROG0fromh0, FROG1fromh1, truth_h0r, truth_h0i, truth_h1r, truth_h1i
     

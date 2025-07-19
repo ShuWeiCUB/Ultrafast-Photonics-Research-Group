@@ -69,8 +69,8 @@ hp['SNR'] = np.inf
 hp['q']     = 100
 
 # Fourier Axes
-hp['dt']  = 0.5/hp['N'] # in units of T0 #12 4
-hp['WinT']  = 2 # in hp[T0 single sided #6 16
+hp['dt']  = 2/hp['N'] # in units of T0 #12 4
+hp['WinT']  = 4 # in hp[T0 single sided #6 16
 hp['nt']    = int(2*hp['WinT']/(hp['dt']))
 hp['nyq_w'] = np.pi/(hp['dt'])
 hp['dw0']   = np.pi/(hp['WinT'])
@@ -100,9 +100,11 @@ class PI_FROG(NeuralNetwork):
         self.t = NN_hp['t']
 
         n = len(self.t)
+
         
-        self.w = np.arange(-n/2,n/2)*np.pi/(NN_hp['dt']*n)
-        #self.w = np.linspace(-6.4,6.4, len(self.t))
+        
+        #self.w = np.arange(-n/2,n/2)*np.pi/(NN_hp['dt']*n)
+        self.w = np.linspace(-6.4,6.4, len(self.t))
 
         
         # Add a reshape layer so the output is (,q,2) U is dim 1 V is dim 2
@@ -293,9 +295,13 @@ class PI_FROG(NeuralNetwork):
             FROG0  = FROG_0[i]
             FROG1  = FROG_1[i]
             h0 = tf.complex(u_0_pred[:,q], v_0_pred[:,q])
-            FROG0_q_pred = makeFROG(h0,h0,pad = self.pad,wcrop = self.nw)
+            #FROG0_q_pred = makeFROG(h0,h0,pad = self.pad,wcrop = self.nw)
+            FROG0_q_pred = makeFROG(h0,h0,pad = 0,wcrop = 0)
+
             h1 = tf.complex(u_1_pred[:,q], v_1_pred[:,q])
-            FROG1_q_pred = makeFROG(h1,h1,pad = self.pad,wcrop = self.nw)
+            #FROG1_q_pred = makeFROG(h1,h1,pad = self.pad,wcrop = self.nw)
+            FROG1_q_pred = makeFROG(h1,h1,pad = 0,wcrop = 0)
+
             
             mse0 = tf.reduce_sum(tf.square(FROG0_q_pred - tf.transpose(FROG0)))
             mse1 = tf.reduce_sum(tf.square(FROG1_q_pred - tf.transpose(FROG1)))
@@ -575,8 +581,11 @@ class PI_FROG(NeuralNetwork):
 
         print("h0mean " + str(h0mean.shape))
         
-        FROG0_pred = makeFROG(h0mean,h0mean,pad = self.pad,wcrop = self.nw)
-        FROG1_pred = makeFROG(h1mean,h1mean,pad = self.pad,wcrop = self.nw)
+        #FROG0_pred = makeFROG(h0mean,h0mean,pad = self.pad,wcrop = self.nw)
+        #FROG1_pred = makeFROG(h1mean,h1mean,pad = self.pad,wcrop = self.nw)
+
+        FROG0_pred = makeFROG(h0mean,h0mean,pad = 0,wcrop = 0)
+        FROG1_pred = makeFROG(h1mean,h1mean,pad = 0,wcrop = 0)
 
         
         return U_0_star, V_0_star, U_1_star, V_1_star, U_pred, V_pred, FROG0_pred,FROG1_pred
@@ -635,7 +644,7 @@ class PI_FROG(NeuralNetwork):
 
       
 #%% TRAININGÂ THEÂ MODEL
-def get_PINN(hp = hp, datafname = 'PINN_FROG_model_gaussian_N=2.0_dist=1.mat',indexnum = 'last',ModelDirectory = os.getcwd(),D_trainable = False, N2_trainable = False, Load_Trained_model = False):
+def get_PINN(hp = hp, datafname = 'PINN_FROG_model_chirpedgau64_N=2.0_dist=1.mat',indexnum = 'last',ModelDirectory = os.getcwd(),D_trainable = False, N2_trainable = False, Load_Trained_model = False):
     # Getting the data
     # datafname = 'GNLSE_Disc_Raman_On.mat'
     #PINN_FROG_model_gaussian_N=2.0_dist=1.mat
@@ -667,7 +676,7 @@ def get_PINN(hp = hp, datafname = 'PINN_FROG_model_gaussian_N=2.0_dist=1.mat',in
     hpBM["log_frequency"] = hp["BM_log_frequency"]
     hpBM["log_checkpoint_freq"] = hp["BM_log_checkpoint_freq"]
     #hpBM['datafname'] = datafname[0:-4] +'_BaseModel.mat' 
-    hpBM['datafname'] = 'PINN_FROG_model_gaussian_N=2.0_dist=1.mat'
+    hpBM['datafname'] = 'PINN_FROG_model_chirpedgau64_N=2.0_dist=1.mat'
     
     loggerBM = Logger(hpBM, Directory = logger.SaveDir)
     logger.sim_data = sim_data
@@ -869,6 +878,21 @@ def get_PINN(hp = hp, datafname = 'PINN_FROG_model_gaussian_N=2.0_dist=1.mat',in
     print("NN_hp['u_0'] length" + str(len(NN_hp['u_0'])))
 
     print("timeshape " + str(NN_hpBM['t'].shape))
+
+    cf = 4.730725317
+    cf =2
+
+    u0 = NN_hpBM['u_0'][0]*cf
+    v0 = NN_hpBM['v_0'][0]*cf
+                    
+    u1 = NN_hpBM['u_1'][0]*cf
+    v1 = NN_hpBM['v_1'][0]*cf
+
+    u0NN = [u0]
+    v0NN = [v0]
+    u1NN = [u1]
+    v1NN = [v1]
+    # 500.8537481523134 power 0.25 = 4.73
     
     
     # Check if base model exists 
@@ -901,7 +925,7 @@ def get_PINN(hp = hp, datafname = 'PINN_FROG_model_gaussian_N=2.0_dist=1.mat',in
     
     # Set the fitting and predicition functions for the specific data set
     pinn.training_data = (NN_hp['FROG_0'],NN_hp['FROG_1'],NN_hp['t'],NN_hp['w'])
-    pinn.PerfectData = (NN_hp['FROG_0'],NN_hp['FROG_1'],np.real(sim_data['Clean_h0']),np.imag(sim_data['Clean_h0']),np.real(sim_data['Clean_h1']),np.imag(sim_data['Clean_h1']))
+    pinn.PerfectData = (NN_hp['FROG_0'],NN_hp['FROG_1'],np.real(sim_data['Clean_h0'])*cf,np.imag(sim_data['Clean_h0'])*cf,np.real(sim_data['Clean_h1'])*cf,np.imag(sim_data['Clean_h1'])*cf)
 
     #pinn.training_data = ([FROG_0],[FROG_1],t_new,NN_hp['w'])
     #pinn.PerfectData = ([FROG_0],[FROG_1] , E_real_0[0].squeeze() ,E_imag_0[0].squeeze(),E_real_1[0].squeeze(),E_imag_1[0].squeeze())
@@ -910,10 +934,10 @@ def get_PINN(hp = hp, datafname = 'PINN_FROG_model_gaussian_N=2.0_dist=1.mat',in
     def getFROGtruth():
         shift_amount = 0  # Left circular shift
 
-        truth_h0r = np.roll(np.real(sim_data['Clean_h0']), shift=shift_amount, axis=0)
-        truth_h0i = np.roll(np.imag(sim_data['Clean_h0']), shift=shift_amount, axis=0)
-        truth_h1r = np.roll(np.real(sim_data['Clean_h1']), shift=shift_amount, axis=0)
-        truth_h1i = np.roll(np.imag(sim_data['Clean_h1']), shift=shift_amount, axis=0)
+        truth_h0r = np.roll(np.real(sim_data['Clean_h0'])*cf, shift=shift_amount, axis=0)
+        truth_h0i = np.roll(np.imag(sim_data['Clean_h0'])*cf, shift=shift_amount, axis=0)
+        truth_h1r = np.roll(np.real(sim_data['Clean_h1'])*cf, shift=shift_amount, axis=0)
+        truth_h1i = np.roll(np.imag(sim_data['Clean_h1'])*cf, shift=shift_amount, axis=0)
 
         #truth_h0r = np.roll(np.real(E_real_0), shift=shift_amount, axis=0)
         #truth_h0i = np.roll(E_imag_0, shift=shift_amount, axis=0).astype(np.float64)
@@ -931,8 +955,10 @@ def get_PINN(hp = hp, datafname = 'PINN_FROG_model_gaussian_N=2.0_dist=1.mat',in
 
     
     def Start_PINN_basemodel_fit():
-        pinnBM.fit_basemodel(NN_hpBM['t'], NN_hpBM['u_0'], NN_hpBM['v_0'],\
-                    NN_hpBM['u_1'], NN_hpBM['v_1'])
+        #pinnBM.fit_basemodel(NN_hpBM['t'], NN_hpBM['u_0'], NN_hpBM['v_0'],\
+        #            NN_hpBM['u_1'], NN_hpBM['v_1'])
+        pinnBM.fit_basemodel(NN_hpBM['t'], u0NN, v0NN,\
+                    u1NN, v1NN)
 
         #pinnBM.fit_basemodel(t_new, E_real_0, E_imag_0,\
         #         E_real_1, E_imag_1)
