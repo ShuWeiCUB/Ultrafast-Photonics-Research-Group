@@ -13,11 +13,11 @@ pinn = PINN.get_PINN(D_trainable = False, N2_trainable = True)
 # Getting the model predictions
 D_pred, N_pred = pinn.get_params(numpy=True)
 
-pinn.Start_fit_basemodel()
+#pinn.Start_fit_basemodel()
 
 #pinn.Start_fit(loadbasemodel = True)
-pinn.load_latest_checkpoint(indexnum=4900, basemodel = True)
-#pinn.Start_fit_basemodel()
+#pinn.load_latest_checkpoint(indexnum=1900, basemodel = True)
+pinn.Start_fit_basemodel()
 
 
 u0p, v0p,u1p,v1p,Up,Vp,FROG0,FROG1,z,t = pinn.get_predict(numpy = True)
@@ -37,8 +37,20 @@ fig, axes = myplots.myfig('4Square_DW')
 
 xla = '$Delay (T_0)$'
 yla = '$\omega (1/T_0)$'
-myplots.myimshow(pinn.t,pinn.w,FROG0_sim[0].T,ax = axes[0],cbar = True,title = '$Truth_0$',xlabel = xla,ylabel = yla)
-myplots.myimshow(pinn.t,pinn.w,FROG1_sim[0].T,ax = axes[2],cbar = True,title = '$Truth_{L_z}$',xlabel = xla,ylabel = yla)
+
+print(pinn.w.shape)
+print(pinn.t.shape)
+print(FROG0_sim[0].shape)
+
+print(pinn.w.dtype)
+print(pinn.t.dtype)
+print(FROG0_sim[0].dtype)
+
+
+
+
+myplots.myimshow(pinn.t,pinn.w,FROG0_sim[0],ax = axes[0],cbar = True,title = '$Truth_0$',xlabel = xla,ylabel = yla)
+myplots.myimshow(pinn.t,pinn.w,FROG1_sim[0],ax = axes[2],cbar = True,title = '$Truth_{L_z}$',xlabel = xla,ylabel = yla)
 
 myplots.myimshow(pinn.t,pinn.w,FROG0[0],ax = axes[1],cbar = True,title = '$Predicted_0$',xlabel = xla,ylabel = yla)
 myplots.myimshow(pinn.t,pinn.w,FROG1[0],ax = axes[3],cbar = True,title = '$Predicted_{L_z}$',xlabel = xla,ylabel = yla)
@@ -124,6 +136,96 @@ plt.show()
 
 
 plt.savefig('pulse_plot')
+
+
+E0sim = U0sim + 1j * V0sim
+E1sim = U1sim + 1j * V1sim
+# FFT and shift
+#E0sim_fft = np.fft.fftshift(np.fft.fft(E0sim, axis=1), axes=1)
+#E1sim_fft = np.fft.fftshift(np.fft.fft(E1sim, axis=1), axes=1)
+
+# Create Hanning window matching time dimension
+#N = E0sim.shape[1]
+#window = np.hanning(N)  # 1D array
+
+# Apply window along time axis for each batch
+#E0sim_windowed = E0sim * window[np.newaxis, :]
+#E1sim_windowed = E1sim * window[np.newaxis, :]
+
+# FFT and shift
+#E0sim_fft = np.fft.fftshift(np.fft.fft(E0sim_windowed, axis=1), axes=1)
+#E1sim_fft = np.fft.fftshift(np.fft.fft(E1sim_windowed, axis=1), axes=1)
+
+# Choose zero-padding factor, e.g., pad to 4 times original length
+N = 64
+pad_factor = 4
+N_pad = N * pad_factor
+
+# Zero-pad along time axis (axis=1)
+# Pad equally on both sides to keep centered
+pad_left = (N_pad - N) // 2
+pad_right = N_pad - N - pad_left
+
+E0sim_padded = np.pad(E0sim, ((0, 0), (pad_left, pad_right)), mode='constant')
+E1sim_padded = np.pad(E1sim, ((0, 0), (pad_left, pad_right)), mode='constant')
+
+# Create Hanning window for padded length
+window = np.hanning(N_pad)
+
+# Apply window along time axis for each batch
+E0sim_windowed = E0sim_padded * window[np.newaxis, :]
+E1sim_windowed = E1sim_padded * window[np.newaxis, :]
+
+# FFT and shift
+E0sim_fft = np.fft.fftshift(np.fft.fft(E0sim_windowed, axis=1), axes=1)
+E1sim_fft = np.fft.fftshift(np.fft.fft(E1sim_windowed, axis=1), axes=1)
+
+
+
+# Frequency axis
+delta_t = t[1] - t[0]
+#freqs = np.fft.fftshift(np.fft.fftfreq(N, d=delta_t))
+freqs = np.fft.fftshift(np.fft.fftfreq(N_pad, d=delta_t))
+
+
+# Extract real and imaginary parts
+U0simfft = E0sim_fft.real
+V0simfft = E0sim_fft.imag
+U1simfft = E1sim_fft.real
+V1simfft = E1sim_fft.imag
+
+plt.figure(figsize=(12, 8))
+
+plt.subplot(2, 2, 1)
+plt.plot(freqs, U0simfft[0, :], label='Real(E0sim_fft)')
+plt.title('Real part of E0sim FFT')
+plt.xlabel('Frequency (Hz)')
+plt.ylabel('Amplitude')
+plt.legend()
+
+plt.subplot(2, 2, 2)
+plt.plot(freqs, V0simfft[0, :], label='Imag(E0sim_fft)', color='orange')
+plt.title('Imaginary part of E0sim FFT')
+plt.xlabel('Frequency (Hz)')
+plt.ylabel('Amplitude')
+plt.legend()
+
+plt.subplot(2, 2, 3)
+plt.plot(freqs, U1simfft[0, :], label='Real(E1sim_fft)')
+plt.title('Real part of E1sim FFT')
+plt.xlabel('Frequency (Hz)')
+plt.ylabel('Amplitude')
+plt.legend()
+
+plt.subplot(2, 2, 4)
+plt.plot(freqs, V1simfft[0, :], label='Imag(E1sim_fft)', color='orange')
+plt.title('Imaginary part of E1sim FFT')
+plt.xlabel('Frequency (Hz)')
+plt.ylabel('Amplitude')
+plt.legend()
+
+plt.tight_layout()
+plt.savefig('complexfreqfield')
 
 
 

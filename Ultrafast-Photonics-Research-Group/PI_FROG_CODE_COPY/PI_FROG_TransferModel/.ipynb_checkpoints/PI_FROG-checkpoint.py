@@ -97,14 +97,24 @@ class PI_FROG(NeuralNetwork):
 
         #self.t = t_new
         self.z = NN_hp['z']
+        
         self.t = NN_hp['t']
 
-        n = len(self.t)
 
         
         
         #self.w = np.arange(-n/2,n/2)*np.pi/(NN_hp['dt']*n)
-        self.w = np.linspace(-6.4,6.4, len(self.t))
+        #self.w = np.linspace(-6.4,6.4, len(self.t))
+
+        #self.w = NN_hp['w']
+
+        n = len(self.t)
+        dt = self.t[1] - self.t[0]
+        self.w = np.fft.fftfreq(n, d=dt) * 2 * np.pi
+        self.w = np.fft.fftshift(self.w)
+        #self.w = tf.cast(self.w, dtype=tf.float64)    # cast to tensor with desired dtype
+
+
 
         
         # Add a reshape layer so the output is (,q,2) U is dim 1 V is dim 2
@@ -138,6 +148,9 @@ class PI_FROG(NeuralNetwork):
         print("N:", self.N.numpy())
         
     def autograd(self, U,V, t, dummy,tape):
+        
+        #print("U dtype:", U.dtype)
+        #print("dummy dtype:", dummy.dtype)
         # Using the new GradientTape paradigm of TF2.0,
         # which keeps track of operations to get the gradient at runtime
         # Watching the two inputs weâll need later, x and t
@@ -146,6 +159,7 @@ class PI_FROG(NeuralNetwork):
         g_U = tape.gradient(U, t, output_gradients=dummy)
         U_t = tape.gradient(g_U, dummy)
         g_U_t = tape.gradient(U_t, t, output_gradients=dummy)
+
         # Deriving INSIDE the tape (2-step-dummy grad technique because U is a mat)
         g_V = tape.gradient(V, t, output_gradients=dummy)
         V_t = tape.gradient(g_V, dummy)
@@ -157,8 +171,46 @@ class PI_FROG(NeuralNetwork):
         V_tt = tape.gradient(g_V_t, dummy)
         # Letting the tape go
         return U_t, U_tt, V_t, V_tt
-    
-    def UV_0_model(self, t, customDummy=None):
+
+    def autograd_freq(self, Uw, Vw, freq):
+        """
+        Uw, Vw: real and imag parts of frequency domain E field (shape: batch, freq_points)
+        freq: angular frequencies (radians/sec)
+        
+        Returns:
+            Time domain first and second derivatives of real and imag parts.
+        """
+        
+        # Compose full complex frequency-domain signal
+
+        freq = tf.cast(freq, tf.complex128)
+        freq = tf.reshape(freq, [-1, 1])  # shape [64, 1]
+
+
+        E_freq = tf.complex(Uw, Vw)  # Uw + i Vw
+
+        
+        # i * ω
+        I = tf.complex(0.0, 1.0)
+        I = tf.cast(I, tf.complex128)
+        
+        E_freq_t = I * freq * E_freq
+        E_freq_tt = - (freq ** 2) * E_freq
+        
+        # IFFT to time domain
+        E_t = tf.signal.ifft(E_freq_t)
+        E_tt = tf.signal.ifft(E_freq_tt)
+        
+        # Extract real and imaginary parts
+        U_t_real = tf.math.real(E_t)
+        U_tt_real = tf.math.real(E_tt)
+        V_t_real = tf.math.imag(E_t)
+        V_tt_real = tf.math.imag(E_tt)
+        
+        return U_t_real, U_tt_real, V_t_real, V_tt_real
+
+
+    def UV_0_model(self, t, freq, customDummy=None):
         if customDummy != None:
             dummy = customDummy
         else:
@@ -166,8 +218,13 @@ class PI_FROG(NeuralNetwork):
         with tf.GradientTape(persistent=True) as tape:
             tape.watch(t)
             tape.watch(dummy)
+            #tape.watch(freq)
+
+            #print("w shape " +str(freq.shape))
+            #print("t shape " + str(t.shape))
             
-            UV = self.model(t) # shape = (N0, 2*q, 2)
+            UV = self.model(freq) # shape = (N0, 2*q, 2)
+            
             UV0 = []
             for i in range(0,self.RKsteps):
                 UV0.append(UV[:,i*self.q:(1+i)*self.q,:])
@@ -176,9 +233,28 @@ class PI_FROG(NeuralNetwork):
             UU_t = []; VV_t = []
             UU_tt = []; VV_tt = []
             for UV in UV0:
-                U = UV[:,:,0]
-                V = UV[:,:,1]
-                U_t, U_tt, V_t, V_tt = self.autograd(U,V, t, dummy,tape)
+                
+                Uw = UV[:,:,0]
+                Vw = UV[:,:,1]
+
+                UVw = tf.complex(Uw, Vw)
+                UVt = tf.signal.ifft(UVw)
+
+                U = tf.math.real(UVt) + 0.0 * dummy
+                V = tf.math.imag(UVt) + 0.0 * dummy
+
+                #print("utype " + str(U.dtype))
+                #print("utype " + str(V.dtype))
+
+                #convert from freqency space to time
+                #U = tf.signal.ifft(Uw)
+                #V = tf.signal.ifft(Vw)
+
+
+                #print("dummy " + str(dummy))
+                #U_t, U_tt, V_t, V_tt = self.autograd(U,V, t, dummy,tape)
+                U_t, U_tt, V_t, V_tt = self.autograd_freq(Uw, Vw, freq)
+
                 # Convl_Re, Convl_Im   = self.Compute_Convolution(U,V,self.Ram_res)
                 # Buidling the PINNs
                 D = self.D
@@ -198,7 +274,7 @@ class PI_FROG(NeuralNetwork):
         del tape # Letting tape go
         return UU0, VV0, UU, VV, UU_t, VV_t
     
-    def UV_1_model(self, t, customDummy=None):
+    def UV_1_model(self, t, freq, customDummy=None):
         if customDummy != None:
             dummy = customDummy
         else:
@@ -206,8 +282,9 @@ class PI_FROG(NeuralNetwork):
         with tf.GradientTape(persistent=True) as tape:
             tape.watch(t)
             tape.watch(dummy)
+            #tape.watch(freq)
             
-            UV = self.model(t) # shape = (N0, 2*q, 2)
+            UV = self.model(freq) # shape = (N0, 2*q, 2)
             UV0 = []
             for i in range(0,self.RKsteps):
                 UV0.append(UV[:,i*self.q:(1+i)*self.q,:])
@@ -216,11 +293,23 @@ class PI_FROG(NeuralNetwork):
             UU_t = []; VV_t = []
             UU_tt = []; VV_tt = []
             for UV in UV0:
-                U = UV[:,:,0]
-                V = UV[:,:,1]
-                U_t, U_tt, V_t, V_tt = self.autograd(U,V, t, dummy,tape)
+                #U = UV[:,:,0]
+                #V = UV[:,:,1]
+
+                Uw = UV[:,:,0]
+                Vw = UV[:,:,1]
+
+                UVw = tf.complex(Uw, Vw)
+                UVt = tf.signal.ifft(UVw)
+
+                U = tf.math.real(UVt) + 0.0 * dummy
+                V = tf.math.imag(UVt) + 0.0 * dummy
+                
+                #U_t, U_tt, V_t, V_tt = self.autograd(U,V, t, dummy,tape)
+                U_t, U_tt, V_t, V_tt = self.autograd_freq(Uw,Vw, freq)
+
                 # Convl_Re, Convl_Im   = self.Compute_Convolution(U,V,self.Ram_res)
-                # Buidling the PINNs
+                # Buidling the PINNsd
                 D = self.D
                 N = self.N
                 # fR = self.fR
@@ -469,9 +558,12 @@ class PI_FROG(NeuralNetwork):
           self.nt_config, Struct(), True, log_train_epoch, NeurNet = self)
         self.logger.log_train_end(self.hp['nt_epochs'],self)
 ########################## Base Model Loss ###################################
-    def loss_basemodel(self, t, uu_0, vv_0, uu_1, vv_1, epoch):
-        UU_0_pred, VV_0_pred, UU0, VV0, UU0_t, VV0_t = self.UV_0_model(t)
-        UU_1_pred, VV_1_pred, UU1, VV1, UU1_t, VV1_t = self.UV_1_model(t)
+    def loss_basemodel(self, t, freq, uu_0, vv_0, uu_1, vv_1, epoch):
+
+        #print("w shape in lossbasemodel " + str(freq.shape))
+
+        UU_0_pred, VV_0_pred, UU0, VV0, UU0_t, VV0_t = self.UV_0_model(t,freq)
+        UU_1_pred, VV_1_pred, UU1, VV1, UU1_t, VV1_t = self.UV_1_model(t,freq)
 
         
         
@@ -518,13 +610,17 @@ class PI_FROG(NeuralNetwork):
                     
         return mse0 + mse1   
     
-    def fit_basemodel(self, t, u0, v0, u1, v1):
+    def fit_basemodel(self, t, freq, u0, v0, u1, v1):
         self.logger.log_train_start(self)
         u_0 = []; v_0 = []
         u_1 = []; v_1 = []
         
         # Creating the tensors
         t   = tf.convert_to_tensor(t, dtype=self.dtype)
+        freq   = tf.convert_to_tensor(freq, dtype=self.dtype)
+
+        #print("w shape in fit " + str(freq.shape))
+
         for i in range(0, self.RKsteps):
             u_0.append(tf.convert_to_tensor(u0[i], dtype=self.dtype)) 
             v_0.append(tf.convert_to_tensor(v0[i], dtype=self.dtype)) 
@@ -532,8 +628,8 @@ class PI_FROG(NeuralNetwork):
             v_1.append(tf.convert_to_tensor(v1[i], dtype=self.dtype)) 
             
         # Creating dummy tensors for the gradients important because we only want to take the derivate w.r.t to the rows not the coloumns of the output
-        self.dummy_t_0 = self.createDummy(t)
-        self.dummy_t_1 = self.createDummy(t)
+        self.dummy_t_0 = self.createDummy(t) #t
+        self.dummy_t_1 = self.createDummy(t) #t
     
         def log_train_epoch(epoch, loss, NeurNet, is_iter):
             D, N,  = self.get_params(numpy=True)
@@ -550,12 +646,15 @@ class PI_FROG(NeuralNetwork):
             log_train_epoch(epoch, loss_value,self, False)
         
         self.logger.log_train_opt("LBFGS")
-        def loss_and_flat_grad(w,epoch):
+        def loss_and_flat_grad(w, epoch):
             with tf.GradientTape() as tape:
                 self.set_weights(w)
                 tape.watch(self.D)
                 tape.watch(self.N)
-                loss_value = self.loss_basemodel(t, u_0, v_0, u_1, v_1, epoch)
+
+                #print("w shape in lossflatgrad " + str(freq.shape))
+
+                loss_value = self.loss_basemodel(t, freq, u_0, v_0, u_1, v_1, epoch)
             grad = tape.gradient(loss_value, self.wrap_training_variables())
             grad_flat = []
             for g in grad:
@@ -564,18 +663,62 @@ class PI_FROG(NeuralNetwork):
             return loss_value, grad_flat
         
         lbfgs(loss_and_flat_grad,
-          self.get_weights(),
+          self.get_weights(), 
           self.nt_config, Struct(), True, log_train_epoch, NeurNet = self)
         
         
-    def predict(self, t_star):
+    def predict(self, t_star, w_star):
         t_star = tf.convert_to_tensor(t_star, dtype=self.dtype)
+        w_star = tf.convert_to_tensor(w_star, dtype=self.dtype)
+
         dummy = self.createDummy(t_star)
-        U_0_star, V_0_star, U_0, V_0, U_t_0, V_t_0 = self.UV_0_model(t_star, dummy)
-        U_1_star, V_1_star,U_1, V_1, U_t_1, V_t_1 = self.UV_1_model(t_star, dummy)
-        UV = self.model(t_star)
-        U_pred = UV[:,:,0]
-        V_pred = UV[:,:,1]
+        U_0_star, V_0_star, U_0, V_0, U_t_0, V_t_0 = self.UV_0_model(t_star, w_star, dummy)
+        U_1_star, V_1_star,U_1, V_1, U_t_1, V_t_1 = self.UV_1_model(t_star,w_star, dummy)
+        #UV = self.model(t_star)
+        UV = self.model(w_star)
+
+        #U_predw = UVw[:,:,0]
+        #V_predw = UVw[:,:,1]
+
+        Uw = UV[:,:,0]
+        Vw = UV[:,:,1]
+
+        # Create figure with 4 subplots
+        fig, axs = plt.subplots(2, 2, figsize=(10, 6), sharex=True)
+        
+        # First row: τ = 0
+        axs[0, 0].plot(Uw[0, :], label='Uw[0, :]', color='blue')
+        axs[0, 0].set_title('Real Part at τ = 0')
+        axs[0, 0].set_ylabel('Amplitude')
+        axs[0, 0].legend()
+        
+        axs[0, 1].plot(Vw[0, :], label='Vw[0, :]', color='red')
+        axs[0, 1].set_title('Imag Part at τ = 0')
+        axs[0, 1].legend()
+        
+        # Second row: τ = -1 (last index)
+        axs[1, 0].plot(Uw[-1, :], label='Uw[-1, :]', color='blue')
+        axs[1, 0].set_title('Real Part at τ = -1')
+        axs[1, 0].set_xlabel('ω index')
+        axs[1, 0].set_ylabel('Amplitude')
+        axs[1, 0].legend()
+        
+        axs[1, 1].plot(Vw[-1, :], label='Vw[-1, :]', color='red')
+        axs[1, 1].set_title('Imag Part at τ = -1')
+        axs[1, 1].set_xlabel('ω index')
+        axs[1, 1].legend()
+        
+        plt.tight_layout()
+        plt.savefig("Efield_edge_slices.png")
+        plt.show()
+
+        UVw = tf.complex(Uw, Vw)
+        UVt = tf.signal.ifft(UVw)
+
+        U_pred = tf.math.real(UVt)
+        V_pred = tf.math.imag(UVt)
+
+        
         h0mean = tf.complex(tf.math.reduce_mean(U_0_star[0],axis = 1), tf.math.reduce_mean(V_0_star[0],axis = 1))
         h1mean = tf.complex(tf.math.reduce_mean(U_1_star[0],axis = 1), tf.math.reduce_mean(V_1_star[0],axis = 1))
 
@@ -621,7 +764,7 @@ class PI_FROG(NeuralNetwork):
            
     def get_predict(self, numpy = False):
         
-        u_0_pred, v_0_pred, u_1_pred, v_1_pred, U_pred, V_pred, FROG_0_pred, FROG_1_pred = self.predict(self.t)
+        u_0_pred, v_0_pred, u_1_pred, v_1_pred, U_pred, V_pred, FROG_0_pred, FROG_1_pred = self.predict(self.t, self.w)
         if numpy:
             u0p_np = []; v0p_np = []
             u1p_np = []; v1p_np = []
@@ -879,20 +1022,58 @@ def get_PINN(hp = hp, datafname = 'PINN_FROG_model_chirpedgau64_N=2.0_dist=1.mat
 
     print("timeshape " + str(NN_hpBM['t'].shape))
 
-    cf = 4.730725317
-    cf =2
+    #cf = 4.730725317
+    #cf =2
 
-    u0 = NN_hpBM['u_0'][0]*cf
-    v0 = NN_hpBM['v_0'][0]*cf
+    u0 = NN_hpBM['u_0'][0]
+    v0 = NN_hpBM['v_0'][0]
                     
-    u1 = NN_hpBM['u_1'][0]*cf
-    v1 = NN_hpBM['v_1'][0]*cf
+    u1 = NN_hpBM['u_1'][0]
+    v1 = NN_hpBM['v_1'][0]
 
     u0NN = [u0]
     v0NN = [v0]
     u1NN = [u1]
     v1NN = [v1]
     # 500.8537481523134 power 0.25 = 4.73
+
+    print("shape of NN_hpBM['w'] " + str(NN_hpBM['w'].shape))
+    print("shape of NN_hpBM['t'] " + str(NN_hpBM['t'].shape))
+
+    print("NN_hpBM['w'] 0 " + str(NN_hpBM['w'][0]))
+    print("NN_hpBM['w'] -1 " + str(NN_hpBM['w'][-1]))
+
+    #print("NN_hpBM['w']  " + str(NN_hpBM['w']))
+    #print("NN_hpBM['t']  " + str(NN_hpBM['t']))
+
+    print(NN_hp['FROG_0'][0].shape)
+
+    n = len(NN_hpBM['t'])
+    dt = NN_hpBM['t'][1] - NN_hpBM['t'][0]
+    freq = np.fft.fftfreq(n, d=dt) * 2 * np.pi
+    freq = np.fft.fftshift(freq)
+    freq = freq
+    freq = tf.cast(freq, dtype=tf.float64) # cast to tensor with desired dtype
+
+    #time = NN_hpBM['t']  # shape: (n,) or (n, 1)
+    #time = np.squeeze(time)  # ensure it's 1D
+    
+    # Compute the time shift needed to center at zero
+    #t_center = (time[0] + time[-1]) / 2
+    #t_shifted = time - t_center
+    
+    # Apply this shift to the time array
+    #NN_hpBM['t'] = t_shifted
+
+    #print("freq  " + str(freq))
+    #print("NN_hpBM['t']  " + str(NN_hpBM['t']))
+
+    
+
+
+
+
+    
     
     
     # Check if base model exists 
@@ -924,8 +1105,8 @@ def get_PINN(hp = hp, datafname = 'PINN_FROG_model_chirpedgau64_N=2.0_dist=1.mat
     logger.set_error_fn(error)
     
     # Set the fitting and predicition functions for the specific data set
-    pinn.training_data = (NN_hp['FROG_0'],NN_hp['FROG_1'],NN_hp['t'],NN_hp['w'])
-    pinn.PerfectData = (NN_hp['FROG_0'],NN_hp['FROG_1'],np.real(sim_data['Clean_h0'])*cf,np.imag(sim_data['Clean_h0'])*cf,np.real(sim_data['Clean_h1'])*cf,np.imag(sim_data['Clean_h1'])*cf)
+    pinn.training_data = (NN_hp['FROG_0'],NN_hp['FROG_1'],NN_hp['t'],freq)
+    pinn.PerfectData =(NN_hp['FROG_0'],NN_hp['FROG_1'],np.real(sim_data['Clean_h0']),np.imag(sim_data['Clean_h0']),np.real(sim_data['Clean_h1']),np.imag(sim_data['Clean_h1']))
 
     #pinn.training_data = ([FROG_0],[FROG_1],t_new,NN_hp['w'])
     #pinn.PerfectData = ([FROG_0],[FROG_1] , E_real_0[0].squeeze() ,E_imag_0[0].squeeze(),E_real_1[0].squeeze(),E_imag_1[0].squeeze())
@@ -934,10 +1115,10 @@ def get_PINN(hp = hp, datafname = 'PINN_FROG_model_chirpedgau64_N=2.0_dist=1.mat
     def getFROGtruth():
         shift_amount = 0  # Left circular shift
 
-        truth_h0r = np.roll(np.real(sim_data['Clean_h0'])*cf, shift=shift_amount, axis=0)
-        truth_h0i = np.roll(np.imag(sim_data['Clean_h0'])*cf, shift=shift_amount, axis=0)
-        truth_h1r = np.roll(np.real(sim_data['Clean_h1'])*cf, shift=shift_amount, axis=0)
-        truth_h1i = np.roll(np.imag(sim_data['Clean_h1'])*cf, shift=shift_amount, axis=0)
+        truth_h0r = np.roll(np.real(sim_data['Clean_h0']), shift=shift_amount, axis=0)
+        truth_h0i = np.roll(np.imag(sim_data['Clean_h0']), shift=shift_amount, axis=0)
+        truth_h1r = np.roll(np.real(sim_data['Clean_h1']), shift=shift_amount, axis=0)
+        truth_h1i = np.roll(np.imag(sim_data['Clean_h1']), shift=shift_amount, axis=0)
 
         #truth_h0r = np.roll(np.real(E_real_0), shift=shift_amount, axis=0)
         #truth_h0i = np.roll(E_imag_0, shift=shift_amount, axis=0).astype(np.float64)
@@ -955,10 +1136,10 @@ def get_PINN(hp = hp, datafname = 'PINN_FROG_model_chirpedgau64_N=2.0_dist=1.mat
 
     
     def Start_PINN_basemodel_fit():
-        #pinnBM.fit_basemodel(NN_hpBM['t'], NN_hpBM['u_0'], NN_hpBM['v_0'],\
-        #            NN_hpBM['u_1'], NN_hpBM['v_1'])
-        pinnBM.fit_basemodel(NN_hpBM['t'], u0NN, v0NN,\
-                    u1NN, v1NN)
+        pinnBM.fit_basemodel(NN_hpBM['t'], freq, NN_hpBM['u_0'], NN_hpBM['v_0'],\
+                    NN_hpBM['u_1'], NN_hpBM['v_1'])
+        #pinnBM.fit_basemodel(NN_hpBM['t'], u0NN, v0NN,\
+        #            u1NN, v1NN)
 
         #pinnBM.fit_basemodel(t_new, E_real_0, E_imag_0,\
         #         E_real_1, E_imag_1)
