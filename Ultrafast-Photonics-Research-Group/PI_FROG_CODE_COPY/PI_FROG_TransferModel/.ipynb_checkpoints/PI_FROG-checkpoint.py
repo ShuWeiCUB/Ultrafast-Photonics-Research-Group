@@ -87,7 +87,7 @@ hp['nw']    = int(2*hp['WinW']/hp['dw'])
 #%% DEFININGÂ THEÂ MODEL
 
 class PI_FROG(NeuralNetwork):
-    def __init__(self, hp, logger, NN_hp,ub,lb,Trainable_vars, Init_guess):
+    def __init__(self, hp, logger,NN_hpBM, NN_hp,ub,lb,Trainable_vars, Init_guess):
         super().__init__(hp, logger, ub, lb)
         self.dz =  NN_hp['dz']
         self.q = max(NN_hp['q'], 1)
@@ -98,7 +98,22 @@ class PI_FROG(NeuralNetwork):
         #self.t = t_new
         self.z = NN_hp['z']
         
-        self.t = NN_hp['t']
+        self.t = NN_hpBM['t']
+
+        num_fourier_frequencies = 20  # or whatever you choose
+
+        #rng = np.random.default_rng(seed=42)  # Use any integer seed you want
+
+        #self.B = tf.constant(
+        #    np.random.randn(1, num_fourier_frequencies) * 1.0,  # you can scale this
+        #    dtype=tf.float64
+        #)
+        sigma = 3
+        rng = np.random.default_rng(seed=42)  # Use any integer seed you want
+        self.B = tf.constant(
+            rng.standard_normal(size=(1, num_fourier_frequencies)) * sigma,
+            dtype=tf.float64
+        )
 
 
         
@@ -223,7 +238,12 @@ class PI_FROG(NeuralNetwork):
             #print("w shape " +str(freq.shape))
             #print("t shape " + str(t.shape))
             
-            UV = self.model(freq) # shape = (N0, 2*q, 2)
+            #UV = self.model(t) # shape = (N0, 2*q, 2)
+
+            t_fourier = self.fourier_embed(t)
+            UV = self.model(t_fourier)
+
+            print("shape of UV " + str(UV.shape))
             
             UV0 = []
             for i in range(0,self.RKsteps):
@@ -234,14 +254,14 @@ class PI_FROG(NeuralNetwork):
             UU_tt = []; VV_tt = []
             for UV in UV0:
                 
-                Uw = UV[:,:,0]
-                Vw = UV[:,:,1]
+                U = UV[:,:,0]
+                V = UV[:,:,1]
 
-                UVw = tf.complex(Uw, Vw)
-                UVt = tf.signal.ifft(UVw)
+                #UVw = tf.complex(Uw, Vw)
+                #UVt = tf.signal.ifft(UVw)
 
-                U = tf.math.real(UVt) + 0.0 * dummy
-                V = tf.math.imag(UVt) + 0.0 * dummy
+                #U = tf.math.real(UVt) + 0.0 * dummy
+                #V = tf.math.imag(UVt) + 0.0 * dummy
 
                 #print("utype " + str(U.dtype))
                 #print("utype " + str(V.dtype))
@@ -252,8 +272,8 @@ class PI_FROG(NeuralNetwork):
 
 
                 #print("dummy " + str(dummy))
-                #U_t, U_tt, V_t, V_tt = self.autograd(U,V, t, dummy,tape)
-                U_t, U_tt, V_t, V_tt = self.autograd_freq(Uw, Vw, freq)
+                U_t, U_tt, V_t, V_tt = self.autograd(U,V, t, dummy,tape)
+                #U_t, U_tt, V_t, V_tt = self.autograd_freq(Uw, Vw, freq)
 
                 # Convl_Re, Convl_Im   = self.Compute_Convolution(U,V,self.Ram_res)
                 # Buidling the PINNs
@@ -283,8 +303,12 @@ class PI_FROG(NeuralNetwork):
             tape.watch(t)
             tape.watch(dummy)
             #tape.watch(freq)
+            #print(t.shape)
+            #UV = self.model(t) # shape = (N0, 2*q, 2)
+
+            t_fourier = self.fourier_embed(t)
+            UV = self.model(t_fourier)
             
-            UV = self.model(freq) # shape = (N0, 2*q, 2)
             UV0 = []
             for i in range(0,self.RKsteps):
                 UV0.append(UV[:,i*self.q:(1+i)*self.q,:])
@@ -296,17 +320,17 @@ class PI_FROG(NeuralNetwork):
                 #U = UV[:,:,0]
                 #V = UV[:,:,1]
 
-                Uw = UV[:,:,0]
-                Vw = UV[:,:,1]
+                U = UV[:,:,0]
+                V = UV[:,:,1]
 
-                UVw = tf.complex(Uw, Vw)
-                UVt = tf.signal.ifft(UVw)
+                #UVw = tf.complex(Uw, Vw)
+                #UVt = tf.signal.ifft(UVw)
 
-                U = tf.math.real(UVt) + 0.0 * dummy
-                V = tf.math.imag(UVt) + 0.0 * dummy
+                #U = tf.math.real(UVt) + 0.0 * dummy
+                #V = tf.math.imag(UVt) + 0.0 * dummy
                 
-                #U_t, U_tt, V_t, V_tt = self.autograd(U,V, t, dummy,tape)
-                U_t, U_tt, V_t, V_tt = self.autograd_freq(Uw,Vw, freq)
+                U_t, U_tt, V_t, V_tt = self.autograd(U,V, t, dummy,tape)
+                #U_t, U_tt, V_t, V_tt = self.autograd_freq(Uw,Vw, freq)
 
                 # Convl_Re, Convl_Im   = self.Compute_Convolution(U,V,self.Ram_res)
                 # Buidling the PINNsd
@@ -584,6 +608,12 @@ class PI_FROG(NeuralNetwork):
 
             #emod = (16*epoch) % 256
 
+            #print(u_0)
+            print(u_0.shape)
+
+            print(u_0_pred.shape)
+            
+
         
             # MSE loss function for each step at input 0 and output 1 of the RK of q order stages.
             #mse0 = tf.reduce_sum(tf.square(u_0_pred[emod:emod+16, :]- u_0[emod:emod+16, :])) +\
@@ -607,6 +637,29 @@ class PI_FROG(NeuralNetwork):
                 
             mse1 = tf.reduce_sum(tf.square(u_1_pred- u_1)) +\
                 tf.reduce_sum(tf.square(v_1_pred- v_1)) + mse1
+
+            def plot_uv_comparison(u_0_pred, v_0_pred, u_0_true, v_0_true, index=0):
+                # index: which slice/time step to plot, default first slice
+            
+                plt.figure(figsize=(12,5))
+            
+                plt.subplot(1,2,1)
+                plt.plot(u_0_true, label='u_0 true', color='blue')
+                plt.plot(u_0_pred[:,0], label='u_0 pred', color='orange', linestyle='--')
+                plt.title('Real part (u_0)')
+                plt.legend()
+            
+                plt.subplot(1,2,2)
+                plt.plot(v_0_true, label='v_0 true', color='blue')
+                plt.plot(v_0_pred[:, 0], label='v_0 pred', color='orange', linestyle='--')
+                plt.title('Imag part (v_0)')
+                plt.legend()
+            
+                plt.savefig('UVinloss' + str(epoch) + '.png')
+        
+        # Example usage, assuming tensors or numpy arrays and batch dimension first:
+        if(epoch %100 == 0):
+            plot_uv_comparison(u_0_pred.numpy(), v_0_pred.numpy(), u_0.numpy(), v_0.numpy())
                     
         return mse0 + mse1   
     
@@ -671,21 +724,37 @@ class PI_FROG(NeuralNetwork):
         t_star = tf.convert_to_tensor(t_star, dtype=self.dtype)
         w_star = tf.convert_to_tensor(w_star, dtype=self.dtype)
 
+        print("t_star " + str(t_star))
+
+        
+
         dummy = self.createDummy(t_star)
-        U_0_star, V_0_star, U_0, V_0, U_t_0, V_t_0 = self.UV_0_model(t_star, w_star, dummy)
-        U_1_star, V_1_star,U_1, V_1, U_t_1, V_t_1 = self.UV_1_model(t_star,w_star, dummy)
+        #U_0_star, V_0_star, U_0, V_0, U_t_0, V_t_0 = self.UV_0_model(t_star, w_star)
+        #U_1_star, V_1_star,U_1, V_1, U_t_1, V_t_1 = self.UV_1_model(t_star,w_star)
+
+        UU_0_pred, VV_0_pred, UU0, VV0, UU0_t, VV0_t = self.UV_0_model(t_star,w_star, dummy)
+        UU_1_pred, VV_1_pred, UU1, VV1, UU1_t, VV1_t = self.UV_1_model(t_star,w_star, dummy)
         #UV = self.model(t_star)
-        UV = self.model(w_star)
+        #UV = self.model(t_star)
 
-        #U_predw = UVw[:,:,0]
-        #V_predw = UVw[:,:,1]
 
-        Uw = UV[:,:,0]
-        Vw = UV[:,:,1]
+
+        t_star = self.fourier_embed(t_star)
+        UV = self.model(t_star)
+
+        U_pred = UV[:,:,0]
+        V_pred = UV[:,:,1]
+
+        #u_0_pred[:,0]
+
+        #U_pred = tf.ones((100,64))
+        #V_pred = tf.ones((100,64))
+
+        
 
         # Create figure with 4 subplots
         fig, axs = plt.subplots(2, 2, figsize=(10, 6), sharex=True)
-        
+        '''
         # First row: τ = 0
         axs[0, 0].plot(Uw[0, :], label='Uw[0, :]', color='blue')
         axs[0, 0].set_title('Real Part at τ = 0')
@@ -711,16 +780,16 @@ class PI_FROG(NeuralNetwork):
         plt.tight_layout()
         plt.savefig("Efield_edge_slices.png")
         plt.show()
+        '''
+        #UVw = tf.complex(Uw, Vw)
+        #UVt = tf.signal.ifft(UVw)
 
-        UVw = tf.complex(Uw, Vw)
-        UVt = tf.signal.ifft(UVw)
-
-        U_pred = tf.math.real(UVt)
-        V_pred = tf.math.imag(UVt)
+        #U_pred = tf.math.real(UVt)
+        #V_pred = tf.math.imag(UVt)
 
         
-        h0mean = tf.complex(tf.math.reduce_mean(U_0_star[0],axis = 1), tf.math.reduce_mean(V_0_star[0],axis = 1))
-        h1mean = tf.complex(tf.math.reduce_mean(U_1_star[0],axis = 1), tf.math.reduce_mean(V_1_star[0],axis = 1))
+        h0mean = tf.complex(tf.math.reduce_mean(UU_0_pred[0],axis = 1), tf.math.reduce_mean(VV_0_pred[0],axis = 1))
+        h1mean = tf.complex(tf.math.reduce_mean(UU_1_pred[0],axis = 1), tf.math.reduce_mean(VV_1_pred[0],axis = 1))
 
         print("h0mean " + str(h0mean.shape))
         
@@ -731,7 +800,8 @@ class PI_FROG(NeuralNetwork):
         FROG1_pred = makeFROG(h1mean,h1mean,pad = 0,wcrop = 0)
 
         
-        return U_0_star, V_0_star, U_1_star, V_1_star, U_pred, V_pred, FROG0_pred,FROG1_pred
+        #return U_0_star, V_0_star, U_1_star, V_1_star, U_pred, V_pred, FROG0_pred,FROG1_pred
+        return UU_0_pred, VV_0_pred, UU_1_pred, VV_1_pred, U_pred, V_pred, FROG0_pred,FROG1_pred
     
     def load_latest_checkpoint(self, indexnum = 'last',basemodel = False):
         super().load_latest_checkpoint(chk_point_num = str(indexnum),basemodel = basemodel)
@@ -823,16 +893,17 @@ def get_PINN(hp = hp, datafname = 'PINN_FROG_model_chirpedgau64_N=2.0_dist=1.mat
     
     loggerBM = Logger(hpBM, Directory = logger.SaveDir)
     logger.sim_data = sim_data
-    pinn = PI_FROG(hp, logger, NN_hp, NN_hp['ub'][0], NN_hp['lb'][0], Trainable_vars = Trainable_Variables, Init_guess = (lambdas_star))
+    #pinn = PI_FROG(hp, logger, NN_hpBM, NN_hp, NN_hp['ub'][0], NN_hp['lb'][0], Trainable_vars = Trainable_Variables, Init_guess = (lambdas_star))
     
     sim_hpBM,sim_dataBM,NN_hpBM = prep_data(hpBM['datafname'] ,hpBM, GlobalPath = GlobalPath, RKsteps = hp['RKsteps'], N=hp["N"], SNR=hp['SNR'],q = hp['q'])
     lambdasBM_star = (sim_hpBM['D']/2,sim_hpBM['N2'])
 
     #lambdasBM_star = (0.5,1.414)
 
-    
+    pinn = PI_FROG(hp, logger, NN_hpBM, NN_hp, NN_hp['ub'][0], NN_hp['lb'][0], Trainable_vars = Trainable_Variables, Init_guess = (lambdas_star))
+
     # The True parameter values
-    pinnBM = PI_FROG(hpBM, loggerBM, NN_hpBM, NN_hpBM['ub'][0], NN_hpBM['lb'][0], Trainable_vars = (False, False), Init_guess = (lambdasBM_star))
+    pinnBM = PI_FROG(hpBM, loggerBM,NN_hpBM,NN_hpBM, NN_hpBM['ub'][0], NN_hpBM['lb'][0], Trainable_vars = (False, False), Init_guess = (lambdasBM_star))
 
     print("NN_hpBM['u_0'] " + str(NN_hpBM['u_0'][0].shape))
 
@@ -1068,6 +1139,9 @@ def get_PINN(hp = hp, datafname = 'PINN_FROG_model_chirpedgau64_N=2.0_dist=1.mat
     #print("freq  " + str(freq))
     #print("NN_hpBM['t']  " + str(NN_hpBM['t']))
 
+    #NN_hp['t'] = NN_hpBM['t']
+
+    print(NN_hpBM['t'])
     
 
 

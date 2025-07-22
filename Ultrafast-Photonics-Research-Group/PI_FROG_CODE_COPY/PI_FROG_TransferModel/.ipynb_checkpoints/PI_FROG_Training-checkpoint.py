@@ -16,7 +16,7 @@ D_pred, N_pred = pinn.get_params(numpy=True)
 #pinn.Start_fit_basemodel()
 
 #pinn.Start_fit(loadbasemodel = True)
-#pinn.load_latest_checkpoint(indexnum=1900, basemodel = True)
+#pinn.load_latest_checkpoint(indexnum=900, basemodel = True)
 pinn.Start_fit_basemodel()
 
 
