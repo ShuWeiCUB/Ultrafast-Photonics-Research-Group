@@ -386,6 +386,10 @@ class PI_FROG(NeuralNetwork):
             tape.watch(dummy)
            
             UV = self.model(t) # shape = (N0, 2*q, 2)
+
+
+            #t_fourier = self.fourier_embed(y)
+            #UV = self.model(t_fourier)
             UV0 = []
             
             t2 = time.time()
@@ -499,6 +503,10 @@ class PI_FROG(NeuralNetwork):
             tape.watch(dummy)
             
             UV = self.model(t) # shape = (N0, 2*q, 2)
+
+            #t_fourier = self.fourier_embed(y)
+            #UV = self.model(t_fourier)
+            
             UV0 = []
             for i in range(0,self.RKsteps):
                 UV0.append(UV[:,i*self.q:(1+i)*self.q,:])

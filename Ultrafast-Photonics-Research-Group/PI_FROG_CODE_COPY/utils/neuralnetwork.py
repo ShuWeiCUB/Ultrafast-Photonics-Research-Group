@@ -2,86 +2,7 @@ import tensorflow as tf
 import numpy as np
 import os
 from custom_lbfgs import lbfgs, Struct
-
 '''
-class Sine(tf.keras.layers.Layer):
-    def __init__(self, w0=1.0):
-        super().__init__()
-        self.w0 = w0
-
-    def call(self, x):
-        return tf.math.sin(self.w0 * x)
-
-class SIRENInitializer(tf.keras.initializers.Initializer):
-    def __init__(self, w0=1.0, is_first=False):
-        self.w0 = w0
-        self.is_first = is_first
-
-    def __call__(self, shape, dtype=None):
-        fan_in = shape[0]
-        if self.is_first:
-            return tf.random.uniform(shape, 
-                                     minval=-1 / fan_in, 
-                                     maxval=1 / fan_in,
-                                     dtype=dtype)
-        else:
-            # From SIREN paper: sqrt(6/fan_in)/w0
-            limit = np.sqrt(6 / fan_in) / self.w0
-            return tf.random.uniform(shape, 
-                                     minval=-limit, 
-                                     maxval=limit,
-                                     dtype=dtype)
-
-class NeuralNetwork(object):
-    def __init__(self, hp, logger, ub, lb, w0=30.0):
-        layers = hp["layers"]
-
-        # Add nt_config like old code for LBFGS config
-        self.nt_config = Struct()
-        self.nt_config.learningRate = hp["nt_lr"]
-        self.nt_config.maxIter = hp["nt_epochs"]
-        self.nt_config.startIter = 0
-        self.nt_config.nCorrection = hp["nt_ncorr"]
-        self.nt_config.tolFun = 1.0 * np.finfo(float).eps
-
-        # TensorFlow optimizer config
-        self.tf_epochs = hp["tf_epochs"]
-        self.tf_optimizer = tf.keras.optimizers.Adam(
-            learning_rate=hp["tf_lr"],
-            beta_1=hp["tf_b1"],
-            epsilon=hp["tf_eps"]
-        )
-
-        self.dtype = "float64"
-
-
-        self.model = tf.keras.Sequential()
-        self.model.add(tf.keras.layers.InputLayer(input_shape=(layers[0],)))
-
-        # First hidden layer with special initialization
-        self.model.add(tf.keras.layers.Dense(
-            layers[1],
-            kernel_initializer=SIRENInitializer(w0=w0, is_first=True),
-            activation=None
-        ))
-        self.model.add(Sine(w0=w0))
-
-        # Additional hidden layers
-        for width in layers[2:-1]:
-            self.model.add(tf.keras.layers.Dense(
-                width,
-                kernel_initializer=SIRENInitializer(w0=w0),
-                activation=None
-            ))
-            self.model.add(Sine(w0=w0))
-
-        # Output layer
-        self.model.add(tf.keras.layers.Dense(
-            layers[-1],
-            kernel_initializer='glorot_uniform',
-            activation=None
-        ))
-'''       
 class NeuralNetwork(object):
     def __init__(self, hp, logger, ub, lb):
 
@@ -126,16 +47,85 @@ class NeuralNetwork(object):
                 self.sizes_w.append(int(width * layers[1]))
                 self.sizes_b.append(int(width if i != 0 else layers[1]))
 
+        self.logger = logger
+'''
+class NeuralNetwork(object):
+    def __init__(self, hp, logger, ub, lb, fourier_features=20, sigma=1.0):
+        layers = hp["layers"]
+        
+        self.nt_config = Struct()
+        self.nt_config.learningRate = hp["nt_lr"]
+        self.nt_config.maxIter = hp["nt_epochs"]
+        self.nt_config.startIter = 0
+        self.nt_config.nCorrection = hp["nt_ncorr"]
+        self.nt_config.tolFun = 1.0 * np.finfo(float).eps
+        self.tf_epochs = hp["tf_epochs"]
+        self.tf_optimizer = tf.keras.optimizers.Adam(
+            learning_rate=hp["tf_lr"],
+            beta_1=hp["tf_b1"],
+            epsilon=hp["tf_eps"])
+
+        self.dtype = "float64"
+        tf.keras.backend.set_floatx(self.dtype)
+
+        self.fourier_features = fourier_features
+        self.lb = tf.convert_to_tensor(lb, dtype=tf.float64)
+        self.ub = tf.convert_to_tensor(ub, dtype=tf.float64)
+        
+        # Initialize B matrix for Fourier feature mapping
+        input_dim = layers[0]  # usually 1 or 2
+        self.B = tf.constant(np.random.normal(0, sigma, size=(input_dim, fourier_features)), dtype=tf.float64)
+
+        # Neural network with Fourier feature embedding
+        self.model = tf.keras.Sequential()
+        
+        # Input -> Fourier -> hidden layers
+        self.model.add(tf.keras.layers.InputLayer(input_shape=(2 * fourier_features,)))
+
+        for width in layers[1:-1]:
+            self.model.add(tf.keras.layers.Dense(
+                width, activation=tf.nn.tanh,
+                kernel_initializer="glorot_normal"))
+        self.model.add(tf.keras.layers.Dense(
+            layers[-1], activation=None,
+            kernel_initializer="glorot_normal"))
+
+        # Save sizes for weight decomposition
+        #self.sizes_w = []
+        #self.sizes_b = []
+        #for i, width in enumerate(layers):
+        #    if i != 1:
+        #        self.sizes_w.append(int(width * layers[1]))
+        #        self.sizes_b.append(int(width if i != 0 else layers[1]))
+
         self.sizes_w = []
         self.sizes_b = []
-        
-        #in_dim = layers[0]
-        #for out_dim in layers[1:]:
-        #    self.sizes_w.append(in_dim * out_dim)
-        #    self.sizes_b.append(out_dim)
-        #    in_dim = out_dim
+        for layer in self.model.layers:
+            if isinstance(layer, tf.keras.layers.Dense):
+                weights_shape = layer.get_weights()[0].shape
+                biases_shape = layer.get_weights()[1].shape
+                self.sizes_w.append(np.prod(weights_shape))
+                self.sizes_b.append(np.prod(biases_shape))
 
         self.logger = logger
+
+   # def fourier_embed(self, X):
+        # Normalize input to [-1, 1]
+   #     X_norm = 2.0 * (X - self.lb) / (self.ub - self.lb) - 1.0
+   ##     XB = tf.matmul(X_norm, self.B)
+    #    return tf.concat([tf.sin(2*np.pi*XB), tf.cos(2*np.pi*XB)], axis=-1)
+    def fourier_embed(self, X):
+        # Normalize input to [-1, 1]
+        X_norm = 2.0 * (X - self.lb) / (self.ub - self.lb) - 1.0  # shape (batch_size,)
+    
+        # Reshape to (batch_size, 1) to enable matmul
+        X_norm = tf.reshape(X_norm, [-1, 1])  # shape (batch_size, 1)
+    
+        # Multiply with frequency matrix B (shape: 1 x num_features)
+        XB = tf.matmul(X_norm, self.B)  # shape (batch_size, num_features)
+    
+        # Return Fourier features with 2pi factor
+        return tf.concat([tf.sin(2 * np.pi * XB), tf.cos(2 * np.pi * XB)], axis=-1)
 
     # Defining custom loss
     # @tf.function
@@ -155,7 +145,7 @@ class NeuralNetwork(object):
 
     def get_params(self, numpy=False):
         return []
-    
+    '''
     def get_weights(self, convert_to_tensor=True, LayerInx = None):
         w = []
         if type(LayerInx) == type(None):
@@ -173,18 +163,13 @@ class NeuralNetwork(object):
     '''
     def get_weights(self, convert_to_tensor=True, LayerInx=None):
         w = []
-        if LayerInx is None:
-            LayerInx = np.arange(len(self.model.layers))  # include all layers
-    
-        for i in LayerInx:
-            layer = self.model.layers[i]
+        for layer in self.model.layers:
             if isinstance(layer, tf.keras.layers.Dense):
                 weights, biases = layer.get_weights()
                 w.extend(weights.flatten())
-                w.extend(biases)
-    
+                w.extend(biases.flatten())
         if convert_to_tensor:
-            w = tf.convert_to_tensor(w, dtype=tf.float64)
+            w = self.tensor(w)
         return w
 
     '''
@@ -199,27 +184,22 @@ class NeuralNetwork(object):
                 biases = w[end_weights:end_weights + self.sizes_b[i]]
                 weights_biases = [weights, biases]
                 layer.set_weights(weights_biases)
-    '''           
-    def set_weights(self, w_flat, LayerInx=None):
+    '''
+    def set_weights(self, w, LayerInx=None):
         pointer = 0
-        layer_idx = 0
-    
         for layer in self.model.layers:
             if isinstance(layer, tf.keras.layers.Dense):
-                w_size = self.sizes_w[layer_idx]
-                b_size = self.sizes_b[layer_idx]
-    
-                weights = tf.reshape(w_flat[pointer:pointer + w_size],
-                                     [int(w_size / b_size), b_size])
+                w_shape = layer.get_weights()[0].shape
+                b_shape = layer.get_weights()[1].shape
+                w_size = np.prod(w_shape)
+                b_size = np.prod(b_shape)
+                weights = tf.reshape(w[pointer:pointer + w_size], w_shape)
                 pointer += w_size
-    
-                biases = w_flat[pointer:pointer + b_size]
+                biases = tf.reshape(w[pointer:pointer + b_size], b_shape)
                 pointer += b_size
-    
-                layer.set_weights([weights.numpy(), biases.numpy()])
-                layer_idx += 1
+                layer.set_weights([weights, biases])
+            
 
-    '''
     def get_loss_and_flat_grad(self, X, u):
         def loss_and_flat_grad(w):
             with tf.GradientTape() as tape:
