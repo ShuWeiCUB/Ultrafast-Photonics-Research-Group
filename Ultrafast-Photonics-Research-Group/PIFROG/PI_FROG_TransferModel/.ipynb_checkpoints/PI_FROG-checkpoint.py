@@ -125,6 +125,19 @@ class PI_FROG(NeuralNetwork):
         n = len(self.t)
         #self.w = np.arange(-n/2,n/2)*np.pi/(NN_hp['dt']*n)
         self.t = NN_hp['t']
+
+        print("self.t values")
+        print(self.t[0]) #-12.5
+        print(self.t[-1]) #12.109375
+
+        
+        
+
+        self.t_span = np.linspace(-1.479999852*10, 1.479999852*10, n)
+
+        #tspan min -1.479999852
+        #tspan max 1.479999852
+        
         self.w = np.linspace(-6.4,6.4, n)
 
         # Add a reshape layer so the output is (,q,2) U is dim 1 V is dim 2
@@ -1644,11 +1657,18 @@ class PI_FROG(NeuralNetwork):
         dummy = self.createDummy(t_star)
         U_0_star, V_0_star, U_0, V_0, U_t_0, V_t_0 = self.UV_0_model(t_star, dummy)
         U_1_star, V_1_star,U_1, V_1, U_t_1, V_t_1 = self.UV_1_model(t_star, dummy)
+        
+        t_star = t_star*10
+        
         UV = self.model(t_star)
         U_pred = UV[:,:,0]
         V_pred = UV[:,:,1]
         h0mean = tf.complex(tf.math.reduce_mean(U_0_star[0],axis = 1), tf.math.reduce_mean(V_0_star[0],axis = 1))
         h1mean = tf.complex(tf.math.reduce_mean(U_1_star[0],axis = 1), tf.math.reduce_mean(V_1_star[0],axis = 1))
+
+        h0mean = tf.transpose(h0mean)
+        h1mean = tf.transpose(h1mean)
+        
         FROG0_pred = makeFROG(h0mean,h0mean,pad = 0,wcrop = 0)
         FROG1_pred = makeFROG(h1mean,h1mean,pad = 0,wcrop = 0)
         return U_0_star, V_0_star, U_1_star, V_1_star, U_pred, V_pred, FROG0_pred,FROG1_pred
@@ -1676,7 +1696,7 @@ class PI_FROG(NeuralNetwork):
             
     def get_predict(self, numpy = False):
         
-        u_0_pred, v_0_pred, u_1_pred, v_1_pred, U_pred, V_pred, FROG_0_pred, FROG_1_pred = self.predict(self.t)
+        u_0_pred, v_0_pred, u_1_pred, v_1_pred, U_pred, V_pred, FROG_0_pred, FROG_1_pred = self.predict(self.t_span)
         if numpy:
             u0p_np = []; v0p_np = []
             u1p_np = []; v1p_np = []

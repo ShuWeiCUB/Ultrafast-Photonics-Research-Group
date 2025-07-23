@@ -68,6 +68,8 @@ def makeFROG(Esig, Egate, pad = 0, wcrop = 0):
         wcrop = wcrop+1
     if type(Esig) == type(np.array([])):
 
+        print("which type numpy")
+
         if pad > 0: 
             n = len(Esig.squeeze())
             Esig  = np.expand_dims(np.pad(Esig.squeeze(),pad),axis = 1)
@@ -101,6 +103,8 @@ def makeFROG(Esig, Egate, pad = 0, wcrop = 0):
         
     
     if type(Esig) == type(tf.constant([])):
+
+        print("which type tensor")
 
         pad = 0
         

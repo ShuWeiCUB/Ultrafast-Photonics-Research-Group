@@ -8,10 +8,13 @@ from multiprocessing import Pool, cpu_count
 import multiprocessing as mp
 from multiprocessing import Barrier
 from multiprocessing import sharedctypes
+import os
 
 import matplotlib.pyplot as plt 
 
 Dtrain = False
+
+save = False
 
 #print("Lol")
 #pinn = PINN.get_PINN(D_trainable = False, N2_trainable = True)
@@ -78,12 +81,12 @@ def run_model(model_id, grad, grad_flat, counter, weights, loss_value, all_h0r, 
 
     # ✅ Create a new independent model inside the worker process
     pinn = PINN.get_PINN(D_trainable=Dtrain, N2_trainable=True) #Dtrain false
-    pinn.load_latest_checkpoint(indexnum= 4900, basemodel=True)  # Load weights for this instance
+    #pinn.load_latest_checkpoint(indexnum= 9920, basemodel=True)  # Load weights for this instance
     
 
     # ✅ Run training independently for each process_
     #barrier.wait()  # Sync before any work
-    #pinn.load_latest_checkpoint(indexnum=14995)
+    pinn.load_latest_checkpoint(indexnum=2000)
     barrier.wait()
     #pinn.Start_fit(qvalue, grad, grad_flat, counter, weights, loss_value, all_h0r, all_h0i, all_h1r, all_h1i, phase_loss_shared, frog_loss_shared, barrier,lock, loadbasemodel=True) 
 
@@ -94,6 +97,7 @@ def run_model(model_id, grad, grad_flat, counter, weights, loss_value, all_h0r, 
     
     
     u0p, v0p,u1p,v1p,Up,Vp,FROG0,FROG1,z,t = pinn.get_predict(numpy = True)
+
     FROG0_sim = pinn.PerfectData[0]
     FROG1_sim = pinn.PerfectData[1]
 
@@ -122,11 +126,53 @@ def run_model(model_id, grad, grad_flat, counter, weights, loss_value, all_h0r, 
         #transpose to match shape
         #myplots.myimshow(pinn.w, pinn.t, FROG0[0].T, ax=axes[1], cbar=True, title='$Predicted_0$', xlabel=yla, ylabel=xla)
         #myplots.myimshow(pinn.w, pinn.t, FROG1[0].T, ax=axes[3], cbar=True, title='$Predicted_{L_z}$', xlabel=yla, ylabel=xla)
+
+        save_dir = 'frog_data'
+        os.makedirs(save_dir, exist_ok=True)
+
+
+        # Save files into the folder
+
+        if save:
+            np.save(os.path.join(save_dir, 'FROG0.npy'), FROG0[0])
+            np.save(os.path.join(save_dir, 'FROG1.npy'), FROG1[0])
+            np.save(os.path.join(save_dir, 'FROG0_sim.npy'), FROG0_sim[0].T)
+            np.save(os.path.join(save_dir, 'FROG1_sim.npy'), FROG1_sim[0].T)
+            np.save(os.path.join(save_dir, 'pinn_t.npy'), pinn.t / 5)
+            np.save(os.path.join(save_dir, 'pinn_w.npy'), pinn.w)
+            np.save(os.path.join(save_dir, 'u0p.npy'), u0p)
+            np.save(os.path.join(save_dir, 'v0p.npy'), v0p)
+            np.save(os.path.join(save_dir, 'u1p.npy'), u1p)
+            np.save(os.path.join(save_dir, 'v1p.npy'), v1p)
+        
+        #u0p, v0p,u1p,v1p,
+
+
+
+
+
         
         myplots.savemyfig('4Square_DW.png')
+
+        print("FROG1shape " + str(FROG1[0].shape))
+
+        #fig, axes = plt.subplots(2, 5, figsize=(18, 6))
+        
+        #for i in range(10):
+        #    ax = axes[i // 5, i % 5]
+        #    im = ax.imshow(FROG1[i*9], aspect='auto', origin='lower', cmap='viridis')
+        #    ax.set_title(f"FROG[{i*9}]")
+        #    ax.axis('off')
+        
+        # Optional: add one colorbar to the side
+        #fig.subplots_adjust(right=0.87)
+        #cbar_ax = fig.add_axes([0.9, 0.15, 0.015, 0.7])
+        #fig.colorbar(im, cax=cbar_ax, label='Intensity')
+        #plt.tight_layout()
+        #plt.savefig('FROGplots1.png')
     
     
-        myplots.myimshow(z,pinn.w,Vp.T,cbar = True, title = 'Vp Figure', xlabel = 'z', ylabel = 'frequency')
+        myplots.myimshow(z,t/5,Vp.T,cbar = True, title = 'Vp Figure', xlabel = 'time', ylabel = 'z')
 
         print("Shape of Vp.T:", Vp.T.shape)
         print("Width (x-axis, len(z)):", Vp.T.shape[1])
@@ -137,7 +183,16 @@ def run_model(model_id, grad, grad_flat, counter, weights, loss_value, all_h0r, 
 
         Intensity = Up**2 + Vp**2
 
-        myplots.myimshow(z, t, Intensity.T, cbar=True, title = 'Intensity',xlabel = 'z', ylabel = 'time')
+        if save:
+            np.save(os.path.join(save_dir, 'IntensityProp.npy'), Intensity.T)
+            np.save(os.path.join(save_dir, 'Vprop.npy'), Vp.T)
+            np.save(os.path.join(save_dir, 'Uprop.npy'), Up.T)
+            np.save(os.path.join(save_dir, 'z.npy'), z)
+
+
+        #print("Up shape " Up.shape)
+
+        myplots.myimshow(z, t/5, Intensity.T, cbar=True, title = 'Intensity',xlabel = 'time', ylabel = 'z')
         myplots.savemyfig('Intensity.png')
 
 
@@ -197,10 +252,10 @@ def run_model(model_id, grad, grad_flat, counter, weights, loss_value, all_h0r, 
         fwhm_bmf, x0_bmf, x1_bmf = simple_fwhm(autoBMfreq, x=pinn.w)
         fwhm_frog0f, x0_f0f, x1_f0f = simple_fwhm(autoFROG0freq, x=pinn.w)
 
-        #autoBM = autoBM/np.max(autoBM)
-        #autoFROG0 = autoFROG0/np.max(autoFROG0)
-        #autoBMfreq = autoBMfreq/np.max(autoBMfreq)
-        #autoFROG0freq = autoFROG0freq/np.max(autoFROG0freq)
+        autoBM = autoBM/np.max(autoBM)
+        autoFROG0 = autoFROG0/np.max(autoFROG0)
+        autoBMfreq = autoBMfreq/np.max(autoBMfreq)
+        autoFROG0freq = autoFROG0freq/np.max(autoFROG0freq)
 
         
         print("FWHM BaseModel:", fwhm_bm, "fs")
