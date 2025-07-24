@@ -13,11 +13,11 @@ pinn = PINN.get_PINN(D_trainable = False, N2_trainable = True)
 # Getting the model predictions
 D_pred, N_pred = pinn.get_params(numpy=True)
 
-#pinn.Start_fit_basemodel()
+pinn.Start_fit_basemodel()
 
 #pinn.Start_fit(loadbasemodel = True)
-#pinn.load_latest_checkpoint(indexnum=900, basemodel = True)
-pinn.Start_fit_basemodel()
+#pinn.load_latest_checkpoint(indexnum=3400, basemodel = True)
+#pinn.Start_fit_basemodel()
 
 
 u0p, v0p,u1p,v1p,Up,Vp,FROG0,FROG1,z,t = pinn.get_predict(numpy = True)
@@ -49,21 +49,21 @@ print(FROG0_sim[0].dtype)
 
 
 
-myplots.myimshow(pinn.t,pinn.w,FROG0_sim[0],ax = axes[0],cbar = True,title = '$Truth_0$',xlabel = xla,ylabel = yla)
-myplots.myimshow(pinn.t,pinn.w,FROG1_sim[0],ax = axes[2],cbar = True,title = '$Truth_{L_z}$',xlabel = xla,ylabel = yla)
+myplots.myimshow(pinn.w,pinn.t,FROG0_sim[0],ax = axes[0],cbar = True,title = '$Truth_0$',xlabel = 'ps',ylabel = 'THz')
+myplots.myimshow(pinn.w,pinn.t,FROG1_sim[0],ax = axes[2],cbar = True,title = '$Truth_{L_z}$',xlabel = xla,ylabel = yla)
 
-myplots.myimshow(pinn.t,pinn.w,FROG0[0],ax = axes[1],cbar = True,title = '$Predicted_0$',xlabel = xla,ylabel = yla)
-myplots.myimshow(pinn.t,pinn.w,FROG1[0],ax = axes[3],cbar = True,title = '$Predicted_{L_z}$',xlabel = xla,ylabel = yla)
+myplots.myimshow(pinn.w,pinn.t,FROG0[0],ax = axes[1],cbar = True,title = '$Predicted_0$',xlabel = 'ps',ylabel = 'THz')
+myplots.myimshow(pinn.w,pinn.t,FROG1[0],ax = axes[3],cbar = True,title = '$Predicted_{L_z}$',xlabel = 'ps',ylabel = 'THz')
 
 myplots.savemyfig('4Square_DW.png')
 
-myplots.myimshow(z,pinn.w,Vp.T,cbar = True, xlabel = 'space', ylabel = 'time')
+myplots.myimshow(z,pinn.t_span,Vp.T,cbar = True, xlabel = 'ps', ylabel = 'z')
 
 myplots.savemyfig('Vp_figure.png')
 
 Intensity = Up**2 + Vp**2
 
-myplots.myimshow(z, t, Intensity.T, cbar=True, xlabel = 'space', ylabel = 'time')
+myplots.myimshow(z, pinn.t_span, Intensity.T, cbar=True, xlabel = 'ps', ylabel = 'z')
 myplots.savemyfig('Intensity.png')
 
 pinn.getDandN()

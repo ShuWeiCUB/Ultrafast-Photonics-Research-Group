@@ -245,7 +245,7 @@ def prep_dataBM(datafname,hp, FROGtype = 'SHG', GlobalPath = os.getcwd(), RKstep
 
 
     
-    tNN = tNN*10
+    tNN = tNN
     #print("np.max(tNN) BM" + str(np.max(tNN)))
     #rint("np.min(tNN) " + str(np.min(tNN)))
 

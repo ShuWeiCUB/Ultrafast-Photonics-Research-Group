@@ -2,6 +2,8 @@ import tensorflow as tf
 import numpy as np
 import os
 from custom_lbfgs import lbfgs, Struct
+
+
 '''
 class NeuralNetwork(object):
     def __init__(self, hp, logger, ub, lb):
@@ -49,6 +51,9 @@ class NeuralNetwork(object):
 
         self.logger = logger
 '''
+
+FFE = True
+
 class NeuralNetwork(object):
     def __init__(self, hp, logger, ub, lb, fourier_features=20, sigma=1.0):
         layers = hp["layers"]
@@ -68,7 +73,8 @@ class NeuralNetwork(object):
         self.dtype = "float64"
         tf.keras.backend.set_floatx(self.dtype)
 
-        self.fourier_features = fourier_features
+        if FFE:
+            self.fourier_features = fourier_features
         self.lb = tf.convert_to_tensor(lb, dtype=tf.float64)
         self.ub = tf.convert_to_tensor(ub, dtype=tf.float64)
         
@@ -80,8 +86,13 @@ class NeuralNetwork(object):
         self.model = tf.keras.Sequential()
         
         # Input -> Fourier -> hidden layers
-        self.model.add(tf.keras.layers.InputLayer(input_shape=(2 * fourier_features,)))
-
+        if FFE:
+            self.model.add(tf.keras.layers.InputLayer(input_shape=(2 * fourier_features,)))
+        else:
+            self.model.add(tf.keras.layers.InputLayer(input_shape=(layers[0],)))
+            self.model.add(tf.keras.layers.Lambda(
+                lambda X: 2.0*(X - lb)/(ub - lb) - 1.0))
+        
         for width in layers[1:-1]:
             self.model.add(tf.keras.layers.Dense(
                 width, activation=tf.nn.tanh,
@@ -97,7 +108,7 @@ class NeuralNetwork(object):
         #    if i != 1:
         #        self.sizes_w.append(int(width * layers[1]))
         #        self.sizes_b.append(int(width if i != 0 else layers[1]))
-
+        
         self.sizes_w = []
         self.sizes_b = []
         for layer in self.model.layers:
@@ -106,6 +117,7 @@ class NeuralNetwork(object):
                 biases_shape = layer.get_weights()[1].shape
                 self.sizes_w.append(np.prod(weights_shape))
                 self.sizes_b.append(np.prod(biases_shape))
+        
 
         self.logger = logger
 
@@ -161,6 +173,7 @@ class NeuralNetwork(object):
             w = self.tensor(w)
         return w
     '''
+    
     def get_weights(self, convert_to_tensor=True, LayerInx=None):
         w = []
         for layer in self.model.layers:

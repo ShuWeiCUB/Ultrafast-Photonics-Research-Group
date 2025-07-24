@@ -83,11 +83,14 @@ hp['nwtot'] = int(2*np.pi/(hp['dw']*hp['dt'])) # Padded nw total, Window will be
 hp['pad']   = int((hp['nwtot']-hp['nt'])/2) 
 hp['nw']    = int(2*hp['WinW']/hp['dw'])
 
+FFE = True
+#set to True if you want Fourier Feature Embedding, False if you do not
+#you need to set FFE to True or False in Neural Network.py as well
 
 #%% DEFININGÂ THEÂ MODEL
 
 class PI_FROG(NeuralNetwork):
-    def __init__(self, hp, logger,NN_hpBM, NN_hp,ub,lb,Trainable_vars, Init_guess):
+    def __init__(self, hp, logger, t_new, f_new, T0, NN_hpBM, NN_hp,ub,lb,Trainable_vars, Init_guess):
         super().__init__(hp, logger, ub, lb)
         self.dz =  NN_hp['dz']
         self.q = max(NN_hp['q'], 1)
@@ -98,7 +101,16 @@ class PI_FROG(NeuralNetwork):
         #self.t = t_new
         self.z = NN_hp['z']
         
-        self.t = NN_hpBM['t']
+        #self.t = NN_hpBM['t']
+        self.t = t_new*T0*pow(10,12) #for plotting purposes only, units of ps
+        self.w = f_new/(T0*pow(10, 12)) # for plotting purposes only, in units of THz
+
+        #print(self.t)
+        #print(self.w)
+        
+        self.t_span = t_new
+        self.f_span = f_new
+        
 
         num_fourier_frequencies = 20  # or whatever you choose
 
@@ -108,12 +120,13 @@ class PI_FROG(NeuralNetwork):
         #    np.random.randn(1, num_fourier_frequencies) * 1.0,  # you can scale this
         #    dtype=tf.float64
         #)
-        sigma = 3
-        rng = np.random.default_rng(seed=42)  # Use any integer seed you want
-        self.B = tf.constant(
-            rng.standard_normal(size=(1, num_fourier_frequencies)) * sigma,
-            dtype=tf.float64
-        )
+        if FFE:
+            sigma = 3
+            rng = np.random.default_rng(seed=42)  # Use any integer seed you want
+            self.B = tf.constant(
+                rng.standard_normal(size=(1, num_fourier_frequencies)) * sigma,
+                dtype=tf.float64
+            )
 
 
         
@@ -123,10 +136,10 @@ class PI_FROG(NeuralNetwork):
 
         #self.w = NN_hp['w']
 
-        n = len(self.t)
-        dt = self.t[1] - self.t[0]
-        self.w = np.fft.fftfreq(n, d=dt) * 2 * np.pi
-        self.w = np.fft.fftshift(self.w)
+        #n = len(self.t)
+        #dt = self.t[1] - self.t[0]
+        #self.w = np.fft.fftfreq(n, d=dt) * 2 * np.pi
+        #self.w = np.fft.fftshift(self.w)
         #self.w = tf.cast(self.w, dtype=tf.float64)    # cast to tensor with desired dtype
 
 
@@ -240,10 +253,15 @@ class PI_FROG(NeuralNetwork):
             
             #UV = self.model(t) # shape = (N0, 2*q, 2)
 
-            t_fourier = self.fourier_embed(t)
-            UV = self.model(t_fourier)
+            
+            if FFE:         
+                t_fourier = self.fourier_embed(t)
+                UV = self.model(t_fourier)
+            else:
+                UV = self.model(t) # shape = (N0, 2*q, 2)
+                
 
-            print("shape of UV " + str(UV.shape))
+            #print("shape of UV " + str(UV.shape))
             
             UV0 = []
             for i in range(0,self.RKsteps):
@@ -306,8 +324,11 @@ class PI_FROG(NeuralNetwork):
             #print(t.shape)
             #UV = self.model(t) # shape = (N0, 2*q, 2)
 
-            t_fourier = self.fourier_embed(t)
-            UV = self.model(t_fourier)
+            if FFE:
+                t_fourier = self.fourier_embed(t)
+                UV = self.model(t_fourier)
+            else:
+                UV = self.model(t)
             
             UV0 = []
             for i in range(0,self.RKsteps):
@@ -609,9 +630,9 @@ class PI_FROG(NeuralNetwork):
             #emod = (16*epoch) % 256
 
             #print(u_0)
-            print(u_0.shape)
+            #print(u_0.shape)
 
-            print(u_0_pred.shape)
+            #print(u_0_pred.shape)
             
 
         
@@ -738,9 +759,12 @@ class PI_FROG(NeuralNetwork):
         #UV = self.model(t_star)
 
 
-
-        t_star = self.fourier_embed(t_star)
-        UV = self.model(t_star)
+        if FFE:
+            t_star = self.fourier_embed(t_star)
+            UV = self.model(t_star)
+        else:
+            UV = self.model(t_star)
+            
 
         U_pred = UV[:,:,0]
         V_pred = UV[:,:,1]
@@ -834,7 +858,7 @@ class PI_FROG(NeuralNetwork):
            
     def get_predict(self, numpy = False):
         
-        u_0_pred, v_0_pred, u_1_pred, v_1_pred, U_pred, V_pred, FROG_0_pred, FROG_1_pred = self.predict(self.t, self.w)
+        u_0_pred, v_0_pred, u_1_pred, v_1_pred, U_pred, V_pred, FROG_0_pred, FROG_1_pred = self.predict(self.t_span, self.w)
         if numpy:
             u0p_np = []; v0p_np = []
             u1p_np = []; v1p_np = []
@@ -858,6 +882,21 @@ class PI_FROG(NeuralNetwork):
       
 #%% TRAININGÂ THEÂ MODEL
 def get_PINN(hp = hp, datafname = 'PINN_FROG_model_chirpedgau64_N=2.0_dist=1.mat',indexnum = 'last',ModelDirectory = os.getcwd(),D_trainable = False, N2_trainable = False, Load_Trained_model = False):
+
+    T0 = 0.3627457787*pow(10,-12)
+    ########################### Interpolation into frequency begin ##########################################
+    #factor = 0.2
+    twin_ps = 2.5
+    twin_fac = 1.0/(T0*pow(10,12)) # factor so you can set twin_ps and get twin in TO units
+    twin = twin_ps*twin_fac # in units of T0
+    nt = 64
+    dt = 2*twin/nt
+    h = np.linspace(-nt/2,nt/2-1,nt)
+    t_new = h*dt
+    df = 1/(dt*nt)
+    f_new = df*h
+
+    
     # Getting the data
     # datafname = 'GNLSE_Disc_Raman_On.mat'
     #PINN_FROG_model_gaussian_N=2.0_dist=1.mat
@@ -900,10 +939,10 @@ def get_PINN(hp = hp, datafname = 'PINN_FROG_model_chirpedgau64_N=2.0_dist=1.mat
 
     #lambdasBM_star = (0.5,1.414)
 
-    pinn = PI_FROG(hp, logger, NN_hpBM, NN_hp, NN_hp['ub'][0], NN_hp['lb'][0], Trainable_vars = Trainable_Variables, Init_guess = (lambdas_star))
+    pinn = PI_FROG(hp, logger, t_new, f_new, T0, NN_hpBM, NN_hp, NN_hp['ub'][0], NN_hp['lb'][0], Trainable_vars = Trainable_Variables, Init_guess = (lambdas_star))
 
     # The True parameter values
-    pinnBM = PI_FROG(hpBM, loggerBM,NN_hpBM,NN_hpBM, NN_hpBM['ub'][0], NN_hpBM['lb'][0], Trainable_vars = (False, False), Init_guess = (lambdasBM_star))
+    pinnBM = PI_FROG(hpBM, loggerBM, t_new, f_new, T0, NN_hpBM,NN_hpBM, NN_hpBM['ub'][0], NN_hpBM['lb'][0], Trainable_vars = (False, False), Init_guess = (lambdasBM_star))
 
     print("NN_hpBM['u_0'] " + str(NN_hpBM['u_0'][0].shape))
 
@@ -1096,16 +1135,7 @@ def get_PINN(hp = hp, datafname = 'PINN_FROG_model_chirpedgau64_N=2.0_dist=1.mat
     #cf = 4.730725317
     #cf =2
 
-    u0 = NN_hpBM['u_0'][0]
-    v0 = NN_hpBM['v_0'][0]
-                    
-    u1 = NN_hpBM['u_1'][0]
-    v1 = NN_hpBM['v_1'][0]
 
-    u0NN = [u0]
-    v0NN = [v0]
-    u1NN = [u1]
-    v1NN = [v1]
     # 500.8537481523134 power 0.25 = 4.73
 
     print("shape of NN_hpBM['w'] " + str(NN_hpBM['w'].shape))
@@ -1119,12 +1149,14 @@ def get_PINN(hp = hp, datafname = 'PINN_FROG_model_chirpedgau64_N=2.0_dist=1.mat
 
     print(NN_hp['FROG_0'][0].shape)
 
+    '''
     n = len(NN_hpBM['t'])
     dt = NN_hpBM['t'][1] - NN_hpBM['t'][0]
     freq = np.fft.fftfreq(n, d=dt) * 2 * np.pi
     freq = np.fft.fftshift(freq)
     freq = freq
     freq = tf.cast(freq, dtype=tf.float64) # cast to tensor with desired dtype
+    '''
 
     #time = NN_hpBM['t']  # shape: (n,) or (n, 1)
     #time = np.squeeze(time)  # ensure it's 1D
@@ -1141,11 +1173,49 @@ def get_PINN(hp = hp, datafname = 'PINN_FROG_model_chirpedgau64_N=2.0_dist=1.mat
 
     #NN_hp['t'] = NN_hpBM['t']
 
-    print(NN_hpBM['t'])
+    #print(NN_hpBM['t'])
+
+
+
+    print("t_new[0] in units T0" + str(t_new[0])) #
+    print("t_new[-1]" + str(t_new[-1])) #
+
+    print("f_new[0]" + str(f_new[0])) #
+    print("f_new[-1]" + str(f_new[-1])) #
+
+    def real_interp(orig_t, orig_signal, target_t):
+        interp_real = interp1d(orig_t, orig_signal, kind='linear', fill_value=0, bounds_error=False)
+        #interp_imag = interp1d(orig_t, np.imag(orig_signal), kind='cubic', fill_value="extrapolate")
+        return interp_real(target_t)
+
+    print(NN_hpBM['t'].shape)
+    print(NN_hpBM['u_0'][0].shape)
+    print(t_new.shape)
+    #print(NN_hpBM['u_0'].shape)
+
+    T0 = 0.3627457787*pow(10,-12)
+    T0_SSFM = 0.2*pow(10,-12)
+    T0_factor = T0_SSFM/T0
+
+    u0 = real_interp(NN_hpBM['t'], NN_hpBM['u_0'][0].squeeze(), NN_hpBM['t']*T0_factor)
+    v0 = real_interp(NN_hpBM['t'], NN_hpBM['v_0'][0].squeeze(), NN_hpBM['t']*T0_factor)
+    u1 = real_interp(NN_hpBM['t'], NN_hpBM['u_1'][0].squeeze(), NN_hpBM['t']*T0_factor)
+    v1 = real_interp(NN_hpBM['t'], NN_hpBM['v_1'][0].squeeze(), NN_hpBM['t']*T0_factor)
+
     
 
+    u0 = u0.reshape(nt, 1)
+    v0 = v0.reshape(nt, 1)
+    u1 = u1.reshape(nt, 1)
+    v1 = v1.reshape(nt, 1)
 
 
+    u0NN = [u0]
+    v0NN = [v0]
+    u1NN = [u1]
+    v1NN = [v1]
+
+    
 
     
     
@@ -1179,7 +1249,7 @@ def get_PINN(hp = hp, datafname = 'PINN_FROG_model_chirpedgau64_N=2.0_dist=1.mat
     logger.set_error_fn(error)
     
     # Set the fitting and predicition functions for the specific data set
-    pinn.training_data = (NN_hp['FROG_0'],NN_hp['FROG_1'],NN_hp['t'],freq)
+    pinn.training_data = (NN_hp['FROG_0'],NN_hp['FROG_1'],t_new,f_new)
     pinn.PerfectData =(NN_hp['FROG_0'],NN_hp['FROG_1'],np.real(sim_data['Clean_h0']),np.imag(sim_data['Clean_h0']),np.real(sim_data['Clean_h1']),np.imag(sim_data['Clean_h1']))
 
     #pinn.training_data = ([FROG_0],[FROG_1],t_new,NN_hp['w'])
@@ -1210,9 +1280,9 @@ def get_PINN(hp = hp, datafname = 'PINN_FROG_model_chirpedgau64_N=2.0_dist=1.mat
 
     
     def Start_PINN_basemodel_fit():
-        pinnBM.fit_basemodel(NN_hpBM['t'], freq, NN_hpBM['u_0'], NN_hpBM['v_0'],\
+        pinnBM.fit_basemodel(NN_hpBM['t'], f_new, NN_hpBM['u_0'], NN_hpBM['v_0'],\
                     NN_hpBM['u_1'], NN_hpBM['v_1'])
-        #pinnBM.fit_basemodel(NN_hpBM['t'], u0NN, v0NN,\
+        #pinnBM.fit_basemodel(t_new, f_new, u0NN, v0NN,\
         #            u1NN, v1NN)
 
         #pinnBM.fit_basemodel(t_new, E_real_0, E_imag_0,\

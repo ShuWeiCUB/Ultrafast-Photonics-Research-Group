@@ -37,6 +37,10 @@ def makeFROG(Esig, Egate, pad = 0, wcrop = 0):
         
     
     if type(Esig) == type(tf.constant([])):
+
+        pad = 0
+        wcrop = 0
+        
         n = len(tf.squeeze(Esig))
         paddings  = tf.constant([[pad,pad]])
         Esig2 = tf.expand_dims(tf.pad(tf.squeeze(Esig), paddings = paddings), axis=1)

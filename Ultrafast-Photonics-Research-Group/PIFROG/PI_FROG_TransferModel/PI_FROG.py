@@ -17,6 +17,8 @@ from scipy.ndimage import zoom
 from skimage.transform import resize
 from scipy.interpolate import interp1d
 
+time_factor = 1
+
 
 # import tensorflow_probability as tfp
 
@@ -99,32 +101,22 @@ hp['nwtot'] = int(2*np.pi/(hp['dw']*hp['dt'])) # Padded nw total, Window will be
 hp['pad']   = int((hp['nwtot']-hp['nt'])/2) 
 hp['nw']    = int(2*hp['WinW']/hp['dw'])
 
-'''
-def compute_loss_and_grad(q, w, t, FROG_0, FROG_1, model):
-    """Compute loss and gradients for a given q (must be outside the class for pickling)."""
-    with tf.GradientTape() as tape:
-        model.set_weights(w)  # Set model weights for each process
-        tape.watch(model.D)
-        tape.watch(model.N)
-        loss_value_q = model.loss(t, q, FROG_0, FROG_1)
-
-    grad_q = tape.gradient(loss_value_q, model.wrap_training_variables())
-    return loss_value_q, grad_q
-'''
 
 #%% DEFININGÂ THEÂ MODEL
 
 class PI_FROG(NeuralNetwork):
-    def __init__(self, hp, logger, NN_hp,ub,lb,Trainable_vars, Init_guess):
+    def __init__(self, hp, logger, t_new, f_new, T0, NN_hp, ub,lb,Trainable_vars, Init_guess):
         super().__init__(hp, logger, ub, lb)
         self.dz =  NN_hp['dz']
         self.q = max(NN_hp['q'], 1)
         self.RKsteps = NN_hp['RKsteps']
-        self.t = NN_hp['t']
+        #self.t = NN_hp['t']
+        
+        self.t = t_new*T0*pow(10,12) #for plotting purposes only, units of ps
+        
         self.z = NN_hp['z']
         n = len(self.t)
         #self.w = np.arange(-n/2,n/2)*np.pi/(NN_hp['dt']*n)
-        self.t = NN_hp['t']
 
         print("self.t values")
         print(self.t[0]) #-12.5
@@ -133,12 +125,16 @@ class PI_FROG(NeuralNetwork):
         
         
 
-        self.t_span = np.linspace(-1.479999852*10, 1.479999852*10, n)
+        #self.t_span = np.linspace(-1.479999852*10, 1.479999852*10, n)
+        self.t_span = t_new # used to make predictions, what the model is actually fitting to
+        self.f_span = f_new
+        
 
         #tspan min -1.479999852
         #tspan max 1.479999852
         
-        self.w = np.linspace(-6.4,6.4, n)
+        #self.w = np.linspace(-6.4,6.4, n)
+        self.w = f_new/(T0*pow(10, 12)) # for plotting purposes only, in units of THz
 
         # Add a reshape layer so the output is (,q,2) U is dim 1 V is dim 2
         self.model.add(tf.keras.layers.Reshape((NN_hp['q']*NN_hp['RKsteps'],2))) 
@@ -190,200 +186,11 @@ class PI_FROG(NeuralNetwork):
         # Letting the tape go
         return U_t, U_tt, V_t, V_tt
 
-    def fft_center_pulse_spatial(self, U, V):
-        """
-        Centers the pulse along the Q axis (spatial centering).
-        U, V: real and imaginary parts of pulse, shape (T, Q)
-        Returns centered real and imaginary parts with complex128 precision.
-        """
-        # Ensure float64
-        U = tf.cast(U, tf.float64)
-        V = tf.cast(V, tf.float64)
-    
-        # Combine into complex
-        UC = tf.complex(U, V)  # shape (T, Q)
-    
-        # Compute intensity
-        intensity = tf.abs(UC) ** 2  # (T, Q)
-    
-        # Q axis: assume symmetric about 0
-        Q = tf.shape(U)[1]
-        q = tf.linspace(-1.0, 1.0, Q)
-        q = tf.cast(q[tf.newaxis, :], tf.float64)  # shape (1, Q)
-    
-        # Center of mass per T
-        weighted_sum = tf.reduce_sum(q * intensity, axis=1)  # (T,)
-        total = tf.reduce_sum(intensity, axis=1) + 1e-20
-        center_of_mass = weighted_sum / total  # (T,)
-    
-        # Frequency axis for Q direction
-        freqs = tf.signal.fftshift(tf.linspace(-np.pi, np.pi, Q))  # (Q,)
-        freqs = tf.cast(freqs, tf.float64)
-    
-        # Apply phase ramp to shift center of mass to 0
-        omega = tf.reshape(freqs, [1, -1])  # (1, Q)
-        shift = -center_of_mass  # (T,)
-        omega_shift = tf.transpose(shift[:, tf.newaxis] * omega)  # (Q, T)
-        phase_ramp = tf.exp(tf.complex(tf.zeros_like(omega_shift), omega_shift))  # (Q, T)
-    
-        # FFT along Q (spatial) axis
-        UC_fft = tf.signal.fft(tf.transpose(UC))  # (Q, T)
-        UC_fft_shifted = UC_fft * tf.cast(phase_ramp, tf.complex128)  # (Q, T)
-        UC_shifted = tf.signal.ifft(UC_fft_shifted)  # (Q, T)
-        UC_shifted = tf.transpose(UC_shifted)  # (T, Q)
-    
-        return tf.math.real(UC_shifted), tf.math.imag(UC_shifted)
-
-
-    def fft_center_pulse(self, U, V, t_axis=0):
-        """
-        U, V: real and imaginary parts of pulse, shape (T, Q)
-        Returns centered real and imaginary parts with complex128 precision.
-        """
-        # Ensure inputs are float64
-        U = tf.cast(U, tf.float64)
-        V = tf.cast(V, tf.float64)
-        
-        # Convert to complex128
-        UC = tf.complex(U, V)  # shape (T, Q), dtype complex128
-    
-        # Compute intensity
-        intensity = tf.abs(UC) ** 2  # shape (T, Q)
-    
-        # Time axis (assumed to be symmetric about 0)
-        T = tf.shape(U)[0]
-        t = tf.linspace(-1.0, 1.0, T)
-        t = tf.cast(t[:, tf.newaxis], tf.float64)  # shape (T, 1)
-    
-        # Center of mass per Q
-        weighted_sum = tf.reduce_sum(t * intensity, axis=0)  # (Q,)
-        total = tf.reduce_sum(intensity, axis=0) + 1e-20
-        center_of_mass = weighted_sum / total  # shape (Q,)
-    
-        # Frequency axis (FFT-compatible)
-        freqs = tf.signal.fftshift(tf.linspace(-np.pi, np.pi, T))  # shape (T,)
-        freqs = tf.cast(freqs, tf.float64)
-    
-        # Phase ramp: exp(+i * omega * shift)
-        omega = tf.reshape(freqs, [-1, 1])  # shape (T, 1)
-        shift = -center_of_mass  # shape (Q,)
-        omega_shift = omega * shift  # shape (T, Q)
-        phase_ramp = tf.exp(tf.complex(tf.zeros_like(omega_shift), omega_shift))  # complex128
-
-        print(phase_ramp)
-    
-        # FFT shift
-        #UC_fft = tf.signal.fft(tf.cast(UC, tf.complex128), axis=0)
-
-        UC_T = tf.transpose(UC)  # (Q, T)
-        UC_fft_T = tf.signal.fft(UC_T)  # (Q, T)
-        UC_fft = tf.transpose(UC_fft_T)  # (T, Q)
-        
-        UC_fft_shifted = UC_fft * tf.cast(phase_ramp, tf.complex128)
-        
-        #UC_shifted = tf.signal.ifft(UC_fft_shifted, axis=0)
-
-        UC_fft_shifted_T = tf.transpose(UC_fft_shifted)  # (Q, T)
-        UC_shifted_T = tf.signal.ifft(UC_fft_shifted_T)  # (Q, T)
-        UC_shifted = tf.transpose(UC_shifted_T)  # (T, Q)
-            
-        # Return real and imaginary parts
-        return tf.math.real(UC_shifted), tf.math.imag(UC_shifted)
-        
-    def fft_center_pulse_fix(self, U, V, t_axis=0):
-        # Ensure float64
-        #U = tf.cast(U, tf.float64)
-        #V = tf.cast(V, tf.float64)
-        
-        # Combine into complex128
-        UC = tf.complex(U, V)  # shape (T, Q), dtype complex128
-        
-        # Intensity (|E|²)
-        intensity = tf.abs(UC) ** 2  # shape (T, Q), dtype float64
-        
-        # Time axis (must be float64)
-        T = tf.shape(U)[0]
-        t = tf.cast(self.t, tf.float64)  # ensure float64
-        t = tf.reshape(t, [-1, 1])  # shape (T, 1)
-        
-        # Midpoint correction
-        t_midpoint = (t[-1] + t[0]) / 2.0  # float64
-
-        #print(t_midpoint)
-        #t_centered = t - t_midpoint  # float64, shape (T, 1)
-        t_centered = t # float64, shape (T, 1)
-        
-        # Center-of-mass in time per Q slice
-        weighted_sum = tf.reduce_sum(t_centered * intensity, axis=0)  # shape (Q,), float64
-        total = tf.reduce_sum(intensity, axis=0) + 1e-20  # shape (Q,), float64
-        center_of_mass = weighted_sum / total  # shape (Q,), float64
-        
-        # Frequency axis
-        delta_t = (t[-1] - t[0]) / tf.cast(T - 1, tf.float64)  # float64
-        freqs = 2.0 * np.pi * tf.signal.fftshift(tf.linspace(-0.5 / delta_t, 0.5 / delta_t, T))  # shape (T,), float64
-        freqs = tf.cast(freqs, tf.float64)  # explicit cast
-        omega = tf.reshape(freqs, [-1, 1])  # shape (T, 1), float64
-        
-        # Phase ramp (complex128)
-        shift = -center_of_mass  # shape (Q,), float64
-        omega_shift = tf.cast(omega * shift, tf.complex128)  # shape (T, Q), complex128
-        phase_ramp = tf.exp(omega_shift * 1j)  # shape (T, Q), complex128
-        
-        # FFT → apply phase ramp → IFFT
-        UC_fft = tf.signal.fft(tf.cast(tf.transpose(UC), tf.complex128))  # shape (Q, T), complex128
-        UC_fft_shifted = UC_fft * tf.transpose(phase_ramp)  # shape (Q, T), complex128
-        UC_shifted = tf.signal.ifft(UC_fft_shifted)  # shape (Q, T), complex128
-        
-        # Return real and imaginary parts, shape (T, Q)
-        UC_shifted = tf.transpose(UC_shifted)  # shape (T, Q)
-        
-        return tf.math.real(UC_shifted), tf.math.imag(UC_shifted)
-
-    def center_complex_pulse_to_t0(self,E, t):
-        """
-        Shift a complex-valued pulse E(t) so its intensity center of mass is at t = 0.
-    
-        Args:
-            E: tf.Tensor of shape (T,), dtype complex128
-            t: tf.Tensor of shape (T,), dtype float64
-    
-        Returns:
-            tf.Tensor of shape (T,), dtype complex128
-        """
-        # Ensure correct types
-        E = tf.cast(E, tf.complex128)
-        t = tf.cast(t, tf.float64)
-    
-        # Compute intensity and center of mass
-        intensity = tf.math.abs(E) ** 2  # float64
-        total_intensity = tf.reduce_sum(intensity) + tf.constant(1e-20, dtype=tf.float64)
-        center_of_mass = tf.reduce_sum(t * intensity) / total_intensity  # float64 scalar
-    
-        # Frequency axis (omega)
-        T = tf.cast(tf.shape(t)[0], tf.float64)
-        delta_t = (t[-1] - t[0]) / (T - tf.constant(1.0, dtype=tf.float64))
-        freqs = tf.signal.fftshift(tf.linspace(-0.5 / delta_t, 0.5 / delta_t, tf.shape(t)[0]))  # float64
-        omega = tf.constant(2.0 * np.pi, dtype=tf.float64) * freqs  # float64
-    
-        # Phase ramp to center pulse
-        zero64 = tf.constant(0.0, dtype=tf.float64)
-        imag_part = -omega * center_of_mass  # float64
-        phase_ramp = tf.exp(tf.complex(zero64, imag_part))  # complex128
-    
-        # FFT shift
-        E_fft = tf.signal.fft(E)  # complex128
-        E_fft_shifted = E_fft * tf.signal.fftshift(phase_ramp)  # complex128
-        E_centered = tf.signal.ifft(E_fft_shifted)  # complex128
-    
-        return E_centered
-
-    
-    
     
     #####ORGINAL CODE
     def UV_0_model(self, t, customDummy=None):
 
-        t = t*10
+        t = t*time_factor
         if customDummy != None:
             dummy = customDummy
         else:
@@ -436,30 +243,6 @@ class PI_FROG(NeuralNetwork):
                 V = UV[:, :, 1]  # shape (64, 100)
 
                 #U,V = self.fft_center_pulse_fix(U, V)
-                '''
-                # Convert to complex
-                UC = tf.complex(U, V)  # shape (64, 100)
-                
-                # Compute mean complex amplitude per q slice (over time axis)
-                mean_complex = tf.reduce_mean(UC, axis=0)  # shape (100,)
-                
-                # Extract the average phase for each q slice
-                mean_phase = tf.math.angle(mean_complex)  # shape (100,)
-                mean_phase = tf.cast(mean_phase, tf.complex128)
-
-                phase_penalty = phase_penalty + tf.reduce_mean(tf.square(mean_phase))
-                
-                # Construct phase correction factor
-                phase_shift = tf.exp(tf.complex(tf.cast(0.0, tf.float64), tf.cast(-1.0, tf.float64)) * mean_phase)  # shape (100,)
-                
-                
-                # Apply correction across time (broadcast over time dimension)
-                UC_aligned = UC * phase_shift  # (64, 100), broadcasting over axis 1
-                
-                # Convert back to real and imaginary parts
-                U = tf.math.real(UC_aligned)
-                V = tf.math.imag(UC_aligned)
-                '''
                 
                 U_t, U_tt, V_t, V_tt = self.autograd(U,V, t, dummy,tape)
                 # Convl_Re, Convl_Im   = self.Compute_Convolution(U,V,self.Ram_res)
@@ -506,7 +289,8 @@ class PI_FROG(NeuralNetwork):
     
     def UV_1_model(self, t, customDummy=None):
 
-        t = t*10
+        t = t*time_factor
+        
         if customDummy != None:
             dummy = customDummy
         else:
@@ -537,33 +321,6 @@ class PI_FROG(NeuralNetwork):
                 V = UV[:, :, 1]  # shape (64, 100)
                 #U,V = self.fft_center_pulse_fix(U, V)
 
-                '''
-                # Convert to complex
-                UC = tf.complex(U, V)  # shape (64, 100)
-                
-                # Compute mean complex amplitude per q slice (over time axis)
-                mean_complex = tf.reduce_mean(UC, axis=0)  # shape (100,)
-                
-                # Extract the average phase for each q slice
-                mean_phase = tf.math.angle(mean_complex)  # shape (100,)
-                mean_phase = tf.cast(mean_phase, tf.complex128)
-
-                phase_penalty = phase_penalty + tf.reduce_mean(tf.square(mean_phase))
-
-                
-                # Construct phase correction factor
-                phase_shift = tf.exp(tf.complex(tf.cast(0.0, tf.float64), tf.cast(-1.0, tf.float64)) * mean_phase)  # shape (100,)
-
-                
-                
-                # Apply correction across time (broadcast over time dimension)
-                UC_aligned = UC * phase_shift  # (64, 100), broadcasting over axis 1
-                
-                # Convert back to real and imaginary parts
-                U = tf.math.real(UC_aligned)
-                V = tf.math.imag(UC_aligned)
-                '''
-
                 U_t, U_tt, V_t, V_tt = self.autograd(U,V, t, dummy,tape)
                 # Convl_Re, Convl_Im   = self.Compute_Convolution(U,V,self.Ram_res)
                 # Buidling the PINNs
@@ -586,90 +343,6 @@ class PI_FROG(NeuralNetwork):
                 UU_tt.append(U_tt); VV_tt.append(V_tt)
         return UU1, VV1, UU, VV, UU_t, VV_t
         
-    '''  
-    
-    #########SPEEDUP ATTEMPT
-    
-    def UV_0_model(self, t, customDummy=None):
-        dummy = customDummy if customDummy is not None else self.dummy_t_0
-
-        with tf.GradientTape(persistent=True) as tape:
-            tape.watch(t)
-            tape.watch(dummy)
-
-            UV = self.model(t)  # shape = (N0, 2*q, 2)
-            UV0 = tf.split(UV, num_or_size_splits=self.RKsteps, axis=1)  # More efficient than a loop
-
-            UU0, VV0, UU, VV, UU_t, VV_t, UU_tt, VV_tt = [], [], [], [], [], [], [], []
-
-            for UV in UV0:
-                U, V = UV[..., 0], UV[..., 1]
-                U_t, U_tt, V_t, V_tt = self.autograd(U, V, t, dummy, tape)
-
-                H2 = U**2 + V**2  # Store once, use twice
-                NU = self.D * V_tt + self.N * (H2 * V)
-                NV = -self.D * U_tt - self.N * (H2 * U)
-
-                IRK_alpha_T = tf.transpose(self.IRK_alpha)  # Reduce redundant transposes
-                
-                U0 = U + self.dz * tf.matmul(tf.cast(NU, tf.float64), tf.cast(IRK_alpha_T, tf.float64))
-                V0 = V + self.dz * tf.matmul(tf.cast(NV, tf.float64), tf.cast(IRK_alpha_T, tf.float64))
-
-                #U0 = U + self.dz * tf.matmul(NU, IRK_alpha_T)
-                #V0 = V + self.dz * tf.matmul(NV, IRK_alpha_T)
-                
-                
-
-                UU0.append(U0); VV0.append(V0)
-                UU.append(U); VV.append(V)
-                UU_t.append(U_t); VV_t.append(V_t)
-                UU_tt.append(U_tt); VV_tt.append(V_tt)
-
-        del tape  # Free memory
-        return UU0, VV0, UU, VV, UU_t, VV_t
-    
-    def UV_1_model(self, t, customDummy=None):
-        dummy = customDummy if customDummy is not None else self.dummy_t_0
-
-        with tf.GradientTape(persistent=True) as tape:
-            tape.watch(t)
-            tape.watch(dummy)
-
-            UV = self.model(t)  # shape = (N0, 2*q, 2)
-            UV0 = tf.split(UV, num_or_size_splits=self.RKsteps, axis=1)
-
-            UU1, VV1, UU, VV, UU_t, VV_t, UU_tt, VV_tt = [], [], [], [], [], [], [], []
-
-            for UV in UV0:
-                U, V = UV[..., 0], UV[..., 1]
-                U_t, U_tt, V_t, V_tt = self.autograd(U, V, t, dummy, tape)
-
-                H2 = U**2 + V**2
-                NU = -self.D * V_tt - self.N * (H2 * V)
-                NV = self.D * U_tt + self.N * (H2 * U)
-
-                IRK_beta_minus_alpha_T = tf.transpose(self.IRK_beta - self.IRK_alpha)
-                
-                U1 = U + self.dz * tf.matmul(tf.cast(NU, tf.float64), tf.cast(IRK_beta_minus_alpha_T, tf.float64))
-                V1 = V + self.dz * tf.matmul(tf.cast(NV, tf.float64), tf.cast(IRK_beta_minus_alpha_T, tf.float64))
-
-                
-
-
-                #U1 = U + self.dz * tf.matmul(NU, IRK_beta_minus_alpha_T)
-                #V1 = V + self.dz * tf.matmul(NV, IRK_beta_minus_alpha_T)
-
-                UU1.append(U1); VV1.append(V1)
-                UU.append(U); VV.append(V)
-                UU_t.append(U_t); VV_t.append(V_t)
-                UU_tt.append(U_tt); VV_tt.append(V_tt)
-
-        del tape
-        return UU1, VV1, UU, VV, UU_t, VV_t
-
-    '''
-
-    
     # def Compute_Convolution(self,U,V,Response_t):
     #     Ohm = tf.constant(np.zeros([int(self.nt/2),1]),dtype = Response_t.dtype)
     #     Response_t = tf.concat([Ohm,Response_t],axis = 0)
@@ -817,65 +490,6 @@ class PI_FROG(NeuralNetwork):
                 plt.close(fig)
 
 
-
-            #t = tf.cast(self.t, tf.float64)  # shape (64,)
-
-            # Center both
-            #h0 = self.center_complex_pulse_to_t0(h0, t)
-            #h1 = self.center_complex_pulse_to_t0(h1, t)
-
-            #h0 = tf.complex(tf.math.real(h0), tf.zeros_like(tf.math.real(h0)))
-
-            
-
-            
-
-            #amplitude0 = tf.abs(h0)       # shape: [batch, time]
-            #amplitude1 = tf.abs(h1)
-            '''
-            #phase_penalty = 0
-            phase_penalty = tf.constant(0.0, dtype=tf.float64)
-
-
-            if q != 99 and q!= 0:
-                h0q = tf.complex(u_0_pred[:,q+1], v_0_pred[:,q+1])
-                h1q = tf.complex(u_1_pred[:,q+1], v_1_pred[:,q+1])
-
-                #h0qb = tf.complex(u_0_pred[:,q-1], v_0_pred[:,q-1])
-                #h1qb = tf.complex(u_1_pred[:,q-1], v_1_pred[:,q-1])
-
-                for a in range(64):
-                    phase_penalty += tf.abs(tf.math.angle(h0[a]) - tf.math.angle(h0q[a]))
-                    phase_penalty += tf.abs(tf.math.angle(h1[a]) - tf.math.angle(h1q[a]))
-                
-                #phase_penalty += tf.reduce_mean(tf.abs(tf.math.angle(h0) - tf.math.angle(h0qb)))
-                #phase_penalty += tf.reduce_mean(tf.abs(tf.math.angle(h1) - tf.math.angle(h1qb)))
-
-                
-            if q == 99:
-                h0qb = tf.complex(u_0_pred[:,q-1], v_0_pred[:,q-1])
-                h1qb = tf.complex(u_1_pred[:,q-1], v_1_pred[:,q-1])
-
-                #phase_penalty += tf.reduce_mean(tf.abs(tf.math.angle(h0) - tf.math.angle(h0qb)))
-                #phase_penalty += tf.reduce_mean(tf.abs(tf.math.angle(h1) - tf.math.angle(h1qb)))
-
-                for a in range(64):
-                    phase_penalty += tf.abs(tf.math.angle(h0[a]) - tf.math.angle(h0qb[a]))
-                    phase_penalty += tf.abs(tf.math.angle(h1[a]) - tf.math.angle(h1qb[a]))
-
-            if q == 0:
-                h0q = tf.complex(u_0_pred[:,q+1], v_0_pred[:,q+1])
-                h1q = tf.complex(u_1_pred[:,q+1], v_1_pred[:,q+1])
-
-                #phase_penalty += tf.reduce_mean(tf.abs(tf.math.angle(h0) - tf.math.angle(h0q)))
-                #phase_penalty += tf.reduce_mean(tf.abs(tf.math.angle(h1) - tf.math.angle(h1q)))
-
-                for a in range(64):
-                    phase_penalty += tf.abs(tf.math.angle(h0[a]) - tf.math.angle(h0q[a]))
-                    phase_penalty += tf.abs(tf.math.angle(h1[a]) - tf.math.angle(h1q[a]))
-                
-
-            '''
             time2 = time.time()
 
             #pad = 0  # number of zeros to add on each side of the time axis
@@ -1011,13 +625,6 @@ class PI_FROG(NeuralNetwork):
             #originalcode
             #mse0 = tf.reduce_sum(tf.square(FROG0_q_pred-FROG0))
             #mse1 = tf.reduce_sum(tf.square(FROG1_q_pred-FROG1))
-
-            #Penalize phase variations (smoothness constraint)
-            #phase0 = tf.math.angle(h0)
-            #phase_loss0 = tf.reduce_mean(tf.abs(phase0[1:] - phase0[:-1]))  # Finite difference
-        
-            #phase1 = tf.math.angle(h1)
-            #phase_loss1 = tf.reduce_mean(tf.abs(phase1[1:] - phase1[:-1]))
             
             # Option 1: Transpose to match shapes
             mse1 = tf.reduce_sum(tf.square(FROG1_q_pred - tf.transpose(FROG1)))
@@ -1036,160 +643,13 @@ class PI_FROG(NeuralNetwork):
             # FROG1_pred = makeFROG(h1mean,h1mean,pad = self.pad,wcrop = self.nw)
             # mse0 = tf.reduce_sum(tf.square(FROG0_pred-FROG0)) + mse0
             # mse1 = tf.reduce_sum(tf.square(FROG1_pred-FROG1)) + mse1
-            
-            # for q in range(0, self.q):
-            #     h0 = tf.complex(u_0_pred[:,q], v_0_pred[:,q])
-            #     FROG0_q_pred = makeFROG(h0,h0,pad = self.pad,wcrop = self.nw)
-            #     h1 = tf.complex(u_1_pred[:,q], v_1_pred[:,q])
-            #     FROG1_q_pred = makeFROG(h1,h1,pad = self.pad,wcrop = self.nw)
-            #     print(q)
-            #     mse0 = tf.reduce_sum(tf.square(FROG0_q_pred-FROG0)) + mse0
-            #     mse1 = tf.reduce_sum(tf.square(FROG1_q_pred-FROG1)) + mse1
-        #if q == 99:
-        #    print(f"FROG loss: {mse0+mse1}, Phase loss: {phase_penalty}")   
-
-
-  
-            
-
-        #alpha = tf.stop_gradient((mse0 + mse1) / (phase_penalty + 1e-8))
-        #alpha = tf.stop_gradient((mse0+mse1)*phase_penalty)
-        #adaptive_weight = tf.minimum(alpha, 1.0) * 0.2  # Scale cap if needed
-
-        #epsilon = 1e-4
-        #beta = 0.2
-
-        #epsilon = tf.constant(1e-4, dtype=tf.float64)
-        #beta = tf.constant(0.2, dtype=tf.float64)
-        
-        # Ratio term to preserve balance
-        #alpha_ratio = (mse0 + mse1 + epsilon) / (phase_penalty + epsilon)
-        
-        # Smooth boost term that stays in (0,1)
-        #boost = tf.sigmoid(phase_penalty - 0.1)  # kicks in when penalty > 0.1
-        
-        # Combine and cap
-        #alpha = tf.stop_gradient(tf.minimum(alpha_ratio, tf.constant(1, dtype=tf.float64)) + beta * boost)
-        #adaptive_weight = tf.clip_by_value(alpha, 0.05, 1.0) * 0.2
-        
-        #if q == 99:
-        #    print("adaptive weight " + str(adaptive_weight))
-
-        #print(adaptive_weight)
 
         phase_loss_shared[q] = 0
         #phase_penalty0 + phase_penalty1
         frog_loss_shared[q] = mse0 + mse1
 
-        #return mse0 + mse1 +  0.1 * (phase_loss0 + phase_loss1)
-        #return mse0 + mse1 + 0.1*(phase_penalty)
-
-        #if epoch %2 == 0:
-        #    return mse0 + mse1
-        #else:
-        #    return mse0 + mse1 + 0.01*(phase_penalty)
-
-        #if phase_penalty > 1:
-        #    return mse0 + mse1 +  0.1 * (phase_penalty)
-        #else:
-        #    return mse0 + mse1
-
-        
-        #n = 5
-
-        # Use tf.math.real if your h0/h1 might be complex
-        #boundary_penalty = tf.reduce_mean(tf.square(tf.abs(h0[0]))) + tf.reduce_mean(tf.square(tf.abs(h0[-1])))
-        #boundary_penalty += tf.reduce_mean(tf.square(tf.abs(h1[0]))) + tf.reduce_mean(tf.square(tf.abs(h1[-1])))
-
-        
-        #adaptive_weight = tf.stop_gradient(0.66 * (mse0+mse1) / (phase_penalty + 1e-8))
-        
-        #adaptive_weight_bound = tf.stop_gradient(0.33 * (mse0+mse1) / (boundary_penalty + 1e-8))
-
-
-        #print(phase_penalty)
-        #print(boundary_penalty)
-
-        #if phase_penalty < 2:
-        #    weight = 0
-        #else:
-        #    weight = 0.001
-        '''
-        def smooth_weight(phase_penalty):
-            scale = 10.0  # Controls sharpness of transition
-            offset = 2.5  # Center of the transition
-            max_weight = 0.001
-        
-            sigmoid_val = tf.sigmoid(scale * (phase_penalty - offset))
-            return max_weight * sigmoid_val
-
-        weight = smooth_weight(phase_penalty)
-         '''  
-        #loss = mse + adaptive_weight * phase_penalty
-        #0.1*(phase_loss0 + phase_loss1)
-        #return mse0 + mse1 + 0.1*(phase_penalty/64.0)
-        #return mse0 + mse1 + adaptive_weight*(phase_penalty) + adaptive_weight_bound*boundary_penalty
-
-        #adaptive_weight = tf.stop_gradient(1.0 * (mse0+mse1) / (weight*phase_penalty + 50*boundary_penalty+ 1e-8))
-
-        #if epoch %2 == 0:
-        #    return mse0 + mse1
-        #else:  
-        #   return adaptive_weight*(weight*phase_penalty+ 50*boundary_penalty)
-
-        #return mse0 + mse1 + weight*phase_penalty+ 50*boundary_penalty
-
-        #phase_penalty = phase_penalty0+phase_penalty1
-
-        #if epoch <= 10000000:
-        #    return mse0 + mse1
-        #else:
-        #    return mse0 + mse1 + 0.1*phase_penalty
         return mse0 + mse1
-            
-
-    def phase_loss(self, all_h0r, all_h0i, all_h1r, all_h1i):
-        """ 
-        all_h0: List of complex h0 fields for all q values (from stage 1).
-        all_h1: List of complex h1 fields for all q values.
-        FROG_losses: Precomputed MSE losses for each q.
-        beta: Phase penalty weight (tune as needed).
-        """
-        # Compute mean phase across q
-        #mean_phase0 = tf.reduce_mean([tf.math.angle(h0) for h0 in all_h0], axis=0)  # [nt]
-        #mean_phase1 = tf.reduce_mean([tf.math.angle(h1) for h1 in all_h1], axis=0)
         
-        # Phase deviation penalty
-
-        #all_h0r_np = np.frombuffer(all_h0r.get_obj(), dtype=np.float64).reshape((100, 64))
-        #all_h0i_np = np.frombuffer(all_h0i.get_obj(), dtype=np.float64).reshape((100, 64))
-        #all_h1r_np = np.frombuffer(all_h1r.get_obj(), dtype=np.float64).reshape((100, 64))
-        #all_h1i_np = np.frombuffer(all_h1i.get_obj(), dtype=np.float64).reshape((100, 64))
-
-
-        #all_h0 = tf.complex(tf.identity(all_h0r), all_h0i)
-        #all_h1 = tf.complex(all_h1r, all_h1i)
-
-        all_h0 = tf.complex(tf.identity(all_h0r), tf.identity(all_h0i))
-        all_h1 = tf.complex(tf.identity(all_h1r), tf.identity(all_h1i))
-
-        #print(all_h0)
-        #print(all_h1)
-
-        #all_h0 = tf.complex(tf.convert_to_tensor(all_h0r_np, dtype=tf.float64),tf.convert_to_tensor(all_h0i_np, dtype=tf.float64))
-        #all_h1 = tf.complex(tf.convert_to_tensor(all_h1r_np, dtype=tf.float64),tf.convert_to_tensor(all_h1i_np, dtype=tf.float64))
-        
-        phase_penalty = 0
-        for i in range(len(all_h0)-1):
-            phase_penalty += tf.reduce_mean(tf.abs(tf.math.angle(all_h0[i]) - tf.math.angle(all_h0[i+1])))  # L1 penalty
-            phase_penalty += tf.reduce_mean(tf.abs(tf.math.angle(all_h1[i]) - tf.math.angle(all_h1[i+1])))  # L1 penalty
-            print(phase_penalty)
-            #print(phase_penalty)
-            
-        #replace tf.abs with tf.square for l2 penalty
-        
-        # Total loss
-        return phase_penalty
     
     def grad(self, t, u_0, v_0, u_1, v_1):
         with tf.GradientTape() as tape:
@@ -1652,13 +1112,13 @@ class PI_FROG(NeuralNetwork):
         
     def predict(self, t_star):
         t_star = tf.convert_to_tensor(t_star, dtype=self.dtype)
-        t_star = t_star / 10
+        t_star = t_star / time_factor
         
         dummy = self.createDummy(t_star)
         U_0_star, V_0_star, U_0, V_0, U_t_0, V_t_0 = self.UV_0_model(t_star, dummy)
         U_1_star, V_1_star,U_1, V_1, U_t_1, V_t_1 = self.UV_1_model(t_star, dummy)
         
-        t_star = t_star*10
+        t_star = t_star*time_factor
         
         UV = self.model(t_star)
         U_pred = UV[:,:,0]
@@ -1757,8 +1217,84 @@ def get_PINN(hp = hp, datafname = 'PINN_FROG_model_chirpedgau64_N=2.0_dist=1.mat
     sim_hpBM,sim_dataBM,NN_hpBM = prep_data(hpBM['datafname'] ,hpBM, GlobalPath = GlobalPath, RKsteps = hp['RKsteps'], N=hp["N"], SNR=hp['SNR'],q = hp['q'], IsBaseModel = True)
     lambdasBM_star = (sim_hpBM['D']/2,sim_hpBM['N2'])
     # The True parameter values
-    pinnBM = PI_FROG(hpBM, loggerBM, NN_hpBM, NN_hpBM['ub'][0], NN_hpBM['lb'][0], Trainable_vars = (False, False), Init_guess = (lambdasBM_star))
-    pinn = PI_FROG(hp, logger, NN_hp, NN_hp['ub'][0], NN_hp['lb'][0], Trainable_vars = Trainable_Variables, Init_guess = (lambdasBM_star))
+    #pinnBM = PI_FROG(hpBM, loggerBM, NN_hpBM, NN_hpBM['ub'][0], NN_hpBM['lb'][0], Trainable_vars = (False, False), Init_guess = (lambdasBM_star))
+    #pinn = PI_FROG(hp, logger, NN_hp, NN_hp['ub'][0], NN_hp['lb'][0], Trainable_vars = Trainable_Variables, Init_guess = (lambdasBM_star))
+    
+
+    Frog0path = ModelDirectory + r'/data/FROG_data_8nm_pad2_6.mat'
+    Frog1path = ModelDirectory + r'/data/FROG_data_3mw_padmatch2_6.mat'
+
+    FROG_0_content = sio.loadmat(Frog0path)
+    FROG_1_content = sio.loadmat(Frog1path)
+
+    FROG_0 = FROG_0_content['Isig']
+    FROG_1 = FROG_1_content['Isig']
+
+    newsize = 128
+
+    time_axis = FROG_0_content['t_exp'].squeeze()
+    freq_axis = FROG_0_content['f_exp'].squeeze()
+
+    delay_marg = np.trapz(FROG_0, axis=0)
+
+    def simple_fwhm(y, x=None):
+            y = y / np.max(y)
+            half_max = 0.5
+            indices = np.where(y >= half_max)[0]
+        
+            if len(indices) < 2:
+                return None, None, None
+        
+            if x is None:
+                fwhm = indices[-1] - indices[0]
+                x0 = indices[0]
+                x1 = indices[-1]
+            else:
+                fwhm = x[indices[-1]] - x[indices[0]]
+                x0 = x[indices[0]]
+                x1 = x[indices[-1]]
+            return fwhm, x0, x1
+
+    fwhm_frog0, x0_f0, x1_f0 = simple_fwhm(delay_marg, x=time_axis)
+
+    print("the FWMH of FROG0 " + str(fwhm_frog0))
+    
+
+    ### Defining axes to be in units of T0
+    #T0 = 0.4*pow(10,-12)
+    #T0 = fwhm_frog0/np.sqrt(2) # 3.62e-13 s
+    T0 = 0.2 * pow(10,-12) #TL assumption
+    time_axis = time_axis/T0 
+    freq_axis = freq_axis*T0
+    # Normalized time and frequency axis from experiment.
+
+    # redundant
+    t_span_pre = np.linspace(time_axis[0], time_axis[-1], newsize) #experimental frog trace
+    f_span_pre = np.linspace(freq_axis[0], freq_axis[-1], newsize)
+
+
+    
+########################### Interpolation into frequency begin ##########################################
+    #factor = 0.2
+    twin_ps = 2.5
+    twin_fac = 1.0/(T0*pow(10,12)) # factor so you can set twin_ps and get twin in TO units
+    twin = twin_ps*twin_fac # in units of T0
+    nt = 64
+    dt = 2*twin/nt
+    h = np.linspace(-nt/2,nt/2-1,nt)
+    t_new = h*dt
+    df = 1/(dt*nt)
+    f_new = df*h
+
+    print("t_new[0] in units T0" + str(t_new[0])) #
+    print("t_new[-1]" + str(t_new[-1])) #
+
+    print("f_new[0]" + str(f_new[0])) #
+    print("f_new[-1]" + str(f_new[-1])) #
+
+
+    pinnBM = PI_FROG(hpBM, loggerBM, t_new, f_new, T0, NN_hpBM, NN_hpBM['ub'][0], NN_hpBM['lb'][0], Trainable_vars = (False, False), Init_guess = (lambdasBM_star))
+    pinn = PI_FROG(hp, logger, t_new, f_new, T0, NN_hp, NN_hp['ub'][0], NN_hp['lb'][0], Trainable_vars = Trainable_Variables, Init_guess = (lambdasBM_star))
 
     print("D_Truth base" + str(sim_hpBM['D']/2))
     print("N2_Truth base" + str(sim_hpBM['N2']))
@@ -1804,34 +1340,31 @@ def get_PINN(hp = hp, datafname = 'PINN_FROG_model_chirpedgau64_N=2.0_dist=1.mat
     #FROG_0_noisy = FROG_0 + noise_scale * np.random.normal(size=FROG_0.shape)
     #FROG_1_noisy = FROG_1 + noise_scale * np.random.normal(size=FROG_1.shape)
 
-    Frog0path = ModelDirectory + r'/data/FROG_data_8nm_pad2_6.mat'
-    Frog1path = ModelDirectory + r'/data/FROG_data_3mw_padmatch2_6.mat'
 
-    FROG_0_content = sio.loadmat(Frog0path)
-    FROG_1_content = sio.loadmat(Frog1path)
+    #t_new[0]-2.5
+    #t_new[-1]2.421875
+    #f_new[0]-6.4
+    #f_new[-1]6.2
 
-    FROG_0 = FROG_0_content['Isig']
-    FROG_1 = FROG_1_content['Isig']
 
-    newsize = 128
-
-    time_axis = FROG_0_content['t_exp'].squeeze()
-    freq_axis = FROG_0_content['f_exp'].squeeze()
-
-    
-    time_axis = time_axis*pow(10,12)
-    freq_axis = freq_axis*pow(10,-12)
-    
-    t_span_pre = np.linspace(time_axis[0], time_axis[-1], newsize)
-    f_span_pre = np.linspace(freq_axis[0], freq_axis[-1], newsize)
 
 
     
 
-    factor = 0.2
-    t_new_pre = np.linspace(factor*NN_hp['t'][0], factor*NN_hp['t'][-1], newsize)
+    #print("NN_hp['t'][0] " +str(NN_hp['t'][0])) #-12.5 multiyng by 0.2 = 2.5
+    #print("NN_hp['t'][-1] " +str(NN_hp['t'][-1])) #12.1
+
+    #print("time_axis[0] in units T0 " +str(time_axis[0])) #-1.47 makes t_span_pre
+    #print("time_axis[-1] in units T0 " +str(time_axis[-1])) #1.47
+
+    #print("freq_axis[0] in units T0" +str(freq_axis[0])) # -3.5754508079955367
+    #rint("freq_axis[-1] in units T0" +str(freq_axis[-1])) # 3.5754508079955367
+    #f_new_pre -> -6.4 ,6.4
+    
+    
+    #t_new_pre = np.linspace(factor*NN_hp['t'][0], factor*NN_hp['t'][-1], newsize)
     #t_new_pre = np.linspace(-2.5, 2.5, newsize)
-    f_new_pre = np.linspace(-1*6.4, 1*6.4, newsize)
+    #f_new_pre = np.linspace(-1*6.4, 1*6.4, newsize)
 
 
     def interpolate_delay_axis(FROG, t_old, t_new):
@@ -1869,11 +1402,17 @@ def get_PINN(hp = hp, datafname = 'PINN_FROG_model_chirpedgau64_N=2.0_dist=1.mat
         return FROG_new
 
     # Usage:
-    FROG_0_interp = interpolate_delay_axis(FROG_0, t_span_pre, t_new_pre)
-    FROG_0_both = interpolate_freq_axis(FROG_0_interp, f_span_pre, f_new_pre)
+    #FROG_0_interp = interpolate_delay_axis(FROG_0, t_span_pre, t_new_pre)
+    #FROG_0_both = interpolate_freq_axis(FROG_0_interp, f_span_pre, f_new_pre)
     
-    FROG_1_interp = interpolate_delay_axis(FROG_1, t_span_pre, t_new_pre)
-    FROG_1_both = interpolate_freq_axis(FROG_1_interp, f_span_pre, f_new_pre)
+    #FROG_1_interp = interpolate_delay_axis(FROG_1, t_span_pre, t_new_pre)
+    #FROG_1_both = interpolate_freq_axis(FROG_1_interp, f_span_pre, f_new_pre)
+
+    FROG_0_interp = interpolate_delay_axis(FROG_0, t_span_pre, t_new)
+    FROG_0_both = interpolate_freq_axis(FROG_0_interp, f_span_pre, f_new)
+    
+    FROG_1_interp = interpolate_delay_axis(FROG_1, t_span_pre, t_new)
+    FROG_1_both = interpolate_freq_axis(FROG_1_interp, f_span_pre, f_new)
 
     
 
@@ -1933,7 +1472,7 @@ def get_PINN(hp = hp, datafname = 'PINN_FROG_model_chirpedgau64_N=2.0_dist=1.mat
     FROG_1 =  FROG_1_skimg
 
     # Step 1: Integrate over delay axis to get temporal autocorrelation
-    auto_0 = np.trapz(FROG_0, axis=0)  # shape: [freq]
+    auto_0 = np.trapz(FROG_0, axis=0)  
     auto_1 = np.trapz(FROG_1, axis=0)
     
 
@@ -1943,7 +1482,7 @@ def get_PINN(hp = hp, datafname = 'PINN_FROG_model_chirpedgau64_N=2.0_dist=1.mat
     U2_1 = np.trapz(auto_1)
     
     # Step 3: Compute correction factor based on FROG ∝ |U|^4
-    correction_factor = (U2_0 / U2_1)  # since FROG ∝ U^2
+    correction_factor = (U2_0 / U2_1)  
     
     # Step 4: Normalize FROG_1 so its energy matches FROG_0
 
@@ -1951,7 +1490,7 @@ def get_PINN(hp = hp, datafname = 'PINN_FROG_model_chirpedgau64_N=2.0_dist=1.mat
 
     FROG_1 = FROG_1/500.8537481523134
 
-    FROG_1 = FROG_1 *  0.4738034399768933
+    FROG_1 = FROG_1 * 0.4738034399768933
 
 
     print("correction factor applied to FROG_PM " + str(correction_factor))
@@ -1963,8 +1502,7 @@ def get_PINN(hp = hp, datafname = 'PINN_FROG_model_chirpedgau64_N=2.0_dist=1.mat
     Frog1SSFM_data = ModelDirectory + r'/data/SSFM_N2=2.mat'
 
     FROG1SSFM_content = sio.loadmat(Frog1SSFM_data)
-
-
+    
 
     FROG_0_train = FROG_0_content['Ishg_ret']
     #FROG_1_train = FROG_1_content['Ishg_ret']
@@ -1978,6 +1516,8 @@ def get_PINN(hp = hp, datafname = 'PINN_FROG_model_chirpedgau64_N=2.0_dist=1.mat
 
     t_span = t_span
 
+    
+    '''
     factor = 1
     t_new = np.linspace(factor*NN_hp['t'][0], factor*NN_hp['t'][-1], newsize)
 
@@ -1998,7 +1538,7 @@ def get_PINN(hp = hp, datafname = 'PINN_FROG_model_chirpedgau64_N=2.0_dist=1.mat
     plt.savefig('auto1')
     plt.close()
 
-    
+    '''
 
     
 
@@ -2010,7 +1550,7 @@ def get_PINN(hp = hp, datafname = 'PINN_FROG_model_chirpedgau64_N=2.0_dist=1.mat
     FROG_1_train = FROG_1_train_skimg.T
 
 
-
+    '''
 
     #E_0 = FROG_0_content['et_ret']
     #E_1 = FROG_1_content['et_ret']
@@ -2092,6 +1632,8 @@ def get_PINN(hp = hp, datafname = 'PINN_FROG_model_chirpedgau64_N=2.0_dist=1.mat
     print("time_axis_shape " + str(time_axis.shape))
     print("NN_hp['t] shape " + str(NN_hp['t'].shape))
 
+    '''
+
     FROG_0_NN = [FROG_0] # Now a list of length 1
     FROG_1_NN = [FROG_1]
 
@@ -2106,12 +1648,13 @@ def get_PINN(hp = hp, datafname = 'PINN_FROG_model_chirpedgau64_N=2.0_dist=1.mat
     print("shapecleanh0" + str(np.real(sim_data['Clean_h0']).shape))
 
     #pinn.training_data = (FROG_0_train, FROG_1_train, NN_hp['t'], freq_axis)
-    pinn.training_data = (FROG_0_NN, FROG_1_NN, t_span, NN_hp['w'])
+    pinn.training_data = (FROG_0_NN, FROG_1_NN, t_new, NN_hp['w'])
 
 
     #pinn.PerfectData = (FROG_0,FROG_1,np.real(sim_data['Clean_h0']),np.imag(sim_data['Clean_h0']),np.real(sim_data['Clean_h1']),np.imag(sim_data['Clean_h1']))
     #pinn.PerfectData = (FROG_0,FROG_1,np.real(E_0),np.imag(E_0),np.real(E_1),np.imag(E_1))
-    pinn.PerfectData = (FROG_0_NN,FROG_1_NN,E_real_0,E_imag_0,E_real_1,E_imag_1)
+    #pinn.PerfectData = (FROG_0_NN,FROG_1_NN,E_real_0,E_imag_0,E_real_1,E_imag_1)
+    pinn.PerfectData = (FROG_0_NN,FROG_1_NN,np.real(sim_data['Clean_h0']),np.imag(sim_data['Clean_h0']),np.real(sim_data['Clean_h1']),np.imag(sim_data['Clean_h1'])) 
 
     datapath = ModelDirectory + r'/data/PINN_FROG_modelN=2.0_dist=1.mat'
 
@@ -2154,9 +1697,6 @@ def get_PINN(hp = hp, datafname = 'PINN_FROG_model_chirpedgau64_N=2.0_dist=1.mat
 
         #rint("padding " +str(padding))
 
-        
-
-        
     
         #nw = hp['nw']    = int(2*hp['WinW']/hp['dw'])
 
@@ -2212,10 +1752,6 @@ def get_PINN(hp = hp, datafname = 'PINN_FROG_model_chirpedgau64_N=2.0_dist=1.mat
         ## Similarly for Egate if different or same shape
          #= np.pad(Egate, pad_width=pad, mode='constant', constant_values=0)
         
-
-        
-
-
         
         #FROG0fromh0 = makeFROG(truth_h0,truth_h0,pad = hp['pad'],wcrop = hp['nw'])
         #ROG1fromh1 = makeFROG(truth_h1,truth_h1,pad = hp['pad'], wcrop = hp['nw'])
@@ -2241,7 +1777,7 @@ def get_PINN(hp = hp, datafname = 'PINN_FROG_model_chirpedgau64_N=2.0_dist=1.mat
         #         FROG0,\
         #         FROGLz, qvalue, grad, grad_flat, counter, weights, loss_value, all_h0r, all_h0i, all_h1r, all_h1i, phase_loss_shared, frog_loss_shared, barrier, lock)
         
-        pinn.fit(t_span,\
+        pinn.fit(t_new,\
                  FROG_0_NN,\
                   FROG_1_NN, qvalue, grad, grad_flat, counter, weights, loss_value, all_h0r, all_h0i, all_h1r, all_h1i, phase_loss_shared, frog_loss_shared, barrier, lock)
             
